@@ -21,7 +21,8 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
-  Alert
+  Alert,
+  TextInput
 } from 'react-native';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
@@ -46,6 +47,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
   const [showLibrary, setShowLibrary] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [messageText, setMessageText] = useState('');
   const cameraRef = useRef<any>(null);
   const { showPaywall } = useSuperwall();
   const [permission, requestPermission] = useCameraPermissions();
@@ -151,34 +153,35 @@ export const HomePage: React.FC<HomePageProps> = () => {
             style={styles.camera}
             facing={cameraFacing}
             onCameraReady={onCameraReady}
-          >
-            {/* Camera Controls - Overlay on top of camera */}
-            <View style={styles.cameraControlsOverlay}>
-              <TouchableOpacity 
-                style={styles.cameraControlButton}
-                onPress={showUploadPaywall}
-              >
-                <Ionicons name="images" size={28} color="#FFFFFF" />
-                <Text style={styles.buttonText}>Upload</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.snapButton}
-                onPress={takePicture}
-              >
-                <View style={styles.snapButtonInner} />
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.cameraControlButton}
-                onPress={toggleCameraFacing}
-              >
-                <Ionicons name="camera-reverse" size={28} color="#FFFFFF" />
-                <Text style={styles.buttonText}>Flip</Text>
-              </TouchableOpacity>
-            </View>
-          </CameraView>
+          />
         </View>
+        
+        {/* Camera Controls - Moved below camera view */}
+        <View style={styles.cameraControls}>
+          <TouchableOpacity 
+            style={styles.cameraControlButton}
+            onPress={showUploadPaywall}
+          >
+            <Ionicons name="images" size={28} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Upload</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.snapButton}
+            onPress={takePicture}
+          >
+            <View style={styles.snapButtonInner} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.cameraControlButton}
+            onPress={toggleCameraFacing}
+          >
+            <Ionicons name="camera-reverse" size={28} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Flip</Text>
+          </TouchableOpacity>
+        </View>
+        
         <View style={styles.swipeIndicator}>
           <Ionicons name="chevron-down" size={24} color="#FFFFFF" />
           <Text style={styles.swipeText}>Swipe down to see posts</Text>
@@ -210,6 +213,31 @@ export const HomePage: React.FC<HomePageProps> = () => {
         </View>
         
         <Text style={styles.postCaption}>{item.caption}</Text>
+        
+        {/* Message Input Box - Added to post view */}
+        <View style={styles.messageInputContainer}>
+          <TextInput
+            style={styles.messageInput}
+            placeholder="Send message..."
+            placeholderTextColor="#9CA3AF"
+            value={messageText}
+            onChangeText={setMessageText}
+          />
+          <View style={styles.emojiContainer}>
+            <TouchableOpacity style={styles.emojiButton}>
+              <Text style={styles.emoji}>❤️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.emojiButton}>
+              <Text style={styles.emoji}>😍</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.emojiButton}>
+              <Text style={styles.emoji}>🔥</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.emojiButton}>
+              <Ionicons name="happy-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     );
   };
@@ -305,23 +333,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
-  cameraControlsOverlay: {
-    position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
+  cameraControls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderRadius: 16,
-    marginHorizontal: 16,
+    marginHorizontal: 8,
+    marginBottom: 20,
+    width: '90%',
   },
   cameraControlButton: {
     flexDirection: 'column',
     alignItems: 'center',
     padding: 8,
+    width: 80,
   },
   snapButton: {
     width: 64,
@@ -402,5 +429,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#E5E7EB',
     lineHeight: 20,
+  },
+  messageInputContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(31, 41, 55, 0.8)',
+    borderRadius: 24,
+    marginHorizontal: 16,
+  },
+  messageInput: {
+    flex: 1,
+    height: 40,
+    color: '#FFFFFF',
+    paddingHorizontal: 12,
+  },
+  emojiContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emojiButton: {
+    paddingHorizontal: 8,
+  },
+  emoji: {
+    fontSize: 20,
   },
 });
