@@ -9,11 +9,11 @@
  */
 
 import React from 'react';
-import { View, Image, Text, StyleSheet } from 'react-native';
+import { View, Image, Text, StyleSheet, ImageSourcePropType } from 'react-native';
 
 interface AvatarProps {
-  source: string;
-  size?: 'small' | 'medium' | 'large';
+  source?: ImageSourcePropType;
+  size?: 'small' | 'medium' | 'large' | number;
   fallback?: string;
   bordered?: boolean;
 }
@@ -26,6 +26,10 @@ export const Avatar: React.FC<AvatarProps> = ({
 }) => {
   // Get dimensions based on size
   const getDimensions = () => {
+    if (typeof size === 'number') {
+      return { width: size, height: size };
+    }
+    
     switch (size) {
       case 'small':
         return { width: 32, height: 32 };
@@ -49,14 +53,14 @@ export const Avatar: React.FC<AvatarProps> = ({
     >
       {source ? (
         <Image 
-          source={{ uri: source }} 
-          style={styles.image} 
+          source={source}
+          style={styles.image}
           resizeMode="cover"
         />
       ) : (
-        <View style={[styles.fallback, { backgroundColor: '#374151' }]}>
+        <View style={[styles.fallbackContainer, { backgroundColor: generateColorFromString(fallback) }]}>
           <Text style={styles.fallbackText}>
-            {fallback ? fallback.charAt(0).toUpperCase() : '?'}
+            {fallback.charAt(0).toUpperCase()}
           </Text>
         </View>
       )}
@@ -64,27 +68,46 @@ export const Avatar: React.FC<AvatarProps> = ({
   );
 };
 
+// Generate a color based on a string (for fallback avatars)
+const generateColorFromString = (str: string): string => {
+  if (!str) return '#6B7280'; // Default gray
+  
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  let color = '#';
+  for (let i = 0; i < 3; i++) {
+    const value = (hash >> (i * 8)) & 0xFF;
+    color += ('00' + value.toString(16)).substr(-2);
+  }
+  
+  return color;
+};
+
 const styles = StyleSheet.create({
   container: {
     borderRadius: 9999,
     overflow: 'hidden',
+    backgroundColor: '#E5E7EB',
   },
   bordered: {
     borderWidth: 2,
-    borderColor: '#4B5563',
+    borderColor: '#FFFFFF',
   },
   image: {
     width: '100%',
     height: '100%',
   },
-  fallback: {
+  fallbackContainer: {
     width: '100%',
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
   },
   fallbackText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 16,
   },

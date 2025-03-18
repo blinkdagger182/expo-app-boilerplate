@@ -22,21 +22,25 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Alert,
-  TextInput
+  TextInput,
+  ActivityIndicator,
+  Platform
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { Input } from './Input';
-import { Post, mockPosts } from './utils';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { useSuperwall } from '@/hooks/useSuperwall';
 import { SUPERWALL_TRIGGERS } from '@/config/superwall';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabaseService, Post as PostType } from '@/services/supabase';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 const { width, height } = Dimensions.get('window');
-const PAGE_HEIGHT = height - 100; // Adjust for header and safe areas
 
 interface HomePageProps {
   // Add any props needed
@@ -45,32 +49,82 @@ interface HomePageProps {
 export const HomePage: React.FC<HomePageProps> = () => {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [showLibrary, setShowLibrary] = useState(false);
-  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('front');
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [caption, setCaption] = useState('');
   const [messageText, setMessageText] = useState('');
+  const [currentPostIndex, setCurrentPostIndex] = useState(0);
+  const [visiblePostIndex, setVisiblePostIndex] = useState(-1); // -1 means camera view is visible
+
+  const [posts, setPosts] = useState<PostType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  
   const cameraRef = useRef<any>(null);
-  const { showPaywall } = useSuperwall();
+  const { showPaywall: showSuperwallPaywall } = useSuperwall();
   const [permission, requestPermission] = useCameraPermissions();
   const scrollViewRef = useRef<ScrollView>(null);
+  const { user, profile } = useAuth();
+  const insets = useSafeAreaInsets();
+  
+  // Calculate dynamic heights based on insets
+  const centeredPostContainerHeight = (Dimensions.get('window').height - (insets.top + insets.bottom + 120)) * 0.7;
+  const cameraViewContainerHeight = Dimensions.get('window').height - (insets.top + insets.bottom + 120);
+
+  // Fetch posts on component mount
+  useEffect(() => {
+    fetchPosts();
+    
+    // Set up real-time subscription for new posts
+    const subscription = supabaseService.subscribeToFriendRequests((payload) => {
+      // Refresh posts when a new post is added
+      fetchPosts();
+    });
+    
+    return () => {
+      // Clean up subscription
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, []);
+  
+  // Fetch posts from Supabase
+  const fetchPosts = async () => {
+    try {
+      setLoading(true);
+      const data = await supabaseService.getPosts();
+      setPosts(data);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+      Alert.alert('Error', 'Failed to load posts');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Toggle between grid and timeline view
   const toggleLibrary = () => {
     setShowLibrary(!showLibrary);
   };
 
-  // Handle scroll events to track current page
+  // Handle scroll events to update the current page index
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset } = event.nativeEvent;
-    const pageIndex = Math.round(contentOffset.y / PAGE_HEIGHT);
-    setCurrentPageIndex(pageIndex);
+    const offsetY = event.nativeEvent.contentOffset.y;
+    const index = Math.round(offsetY / Dimensions.get('window').height);
+    if (index !== currentPageIndex) {
+      setCurrentPageIndex(index);
+    }
   };
 
   // Render a library item
-  const renderLibraryItem = ({ item }: { item: Post }) => {
+  const renderLibraryItem = ({ item }: { item: PostType }) => {
     return (
       <TouchableOpacity style={styles.libraryItem}>
         <Image
-          source={{ uri: item.image }}
+          source={{ uri: item.image_url }}
           style={styles.libraryItemImage}
           resizeMode="cover"
         />
@@ -95,9 +149,24 @@ export const HomePage: React.FC<HomePageProps> = () => {
         const photo = await cameraRef.current.takePictureAsync({
           quality: 0.8,
         });
+        setCapturedImage(photo.uri); // Set the captured image
         
-        Alert.alert('Success', 'Photo captured!');
-        // Here you could add logic to save the photo or add it to posts
+        // Show caption input dialog
+        Alert.prompt(
+          'Add Caption',
+          'Add a caption to your cat photo',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+            },
+            {
+              text: 'Post',
+              onPress: (captionText) => uploadPost(photo.uri, captionText || null),
+            },
+          ],
+          'plain-text'
+        );
       } catch (error) {
         Alert.alert('Error', 'Failed to take picture');
         console.error(error);
@@ -106,10 +175,86 @@ export const HomePage: React.FC<HomePageProps> = () => {
       Alert.alert('Camera not ready', 'Please wait for the camera to initialize');
     }
   };
+  const handlePost = () => {
+    if (capturedImage) {
+      uploadPost(capturedImage, caption);
+      setCapturedImage(null);
+      setCaption('');
+    }
+  };
+  
+  // Upload post to Supabase
+  const uploadPost = async (imageUri: string, captionText: string | null) => {
+    try {
+      setUploading(true);
+      
+      // Check if user is premium for unlimited uploads
+      const isPremium = await supabaseService.checkPremiumStatus();
+      
+      // If not premium and has more than 5 posts, show paywall
+      if (!isPremium && posts.filter(p => p.user_id === user?.id).length >= 50) {
+        showSuperwallPaywall(SUPERWALL_TRIGGERS.FEATURE_UNLOCK);
+        setUploading(false);
+        return;
+      }
+      
+      // Upload post
+      await supabaseService.createPost(imageUri, captionText);
+      
+      // Refresh posts
+      fetchPosts();
+      
+      // Scroll to first post
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({ y: Dimensions.get('window').height, animated: true });
+      }
+      
+      Alert.alert('Success', 'Your cat photo has been posted!');
+    } catch (error) {
+      console.error('Error uploading post:', error);
+      Alert.alert('Error', 'Failed to upload post');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Pick image from library
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      
+      if (!result.canceled) {
+        // Show caption input dialog
+        Alert.prompt(
+          'Add Caption',
+          'Add a caption to your cat photo',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+            },
+            {
+              text: 'Post',
+              onPress: (captionText) => uploadPost(result.assets[0].uri, captionText || null),
+            },
+          ],
+          'plain-text'
+        );
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
 
   // Show upload paywall
   const showUploadPaywall = () => {
-    showPaywall(SUPERWALL_TRIGGERS.FEATURE_UNLOCK);
+    setShowPaywall(true);
   };
 
   // Navigate to messages
@@ -117,24 +262,42 @@ export const HomePage: React.FC<HomePageProps> = () => {
     // Navigate to Messages tab (index 2)
     router.push('/pawket');
   };
+  
+  // Like a post
+  const likePost = async (postId: number) => {
+    try {
+      await supabaseService.likePost(postId);
+      // Update local posts state
+      setPosts(prevPosts => 
+        prevPosts.map(post => 
+          post.id === postId ? { ...post, likes: post.likes + 1 } : post
+        )
+      );
+    } catch (error) {
+      console.error('Error liking post:', error);
+      Alert.alert('Error', 'Failed to like post');
+    }
+  };
+
+  // Function to scroll to a specific page
+  const scrollToPage = (index: number) => {
+    scrollViewRef.current?.scrollTo({
+      y: index * (Dimensions.get('window').height - (insets.top + insets.bottom + 120)),
+      animated: true,
+    });
+  };
 
   // Render camera view with buttons
   const renderCameraView = () => {
+    if (currentPageIndex !== 0) return <View style={{ height: Dimensions.get('window').height - (insets.top + insets.bottom + 120) }} />;
+    
     if (!permission) {
       return (
-        <View style={styles.cameraPage}>
-          <Text style={styles.cameraText}>Requesting camera permission...</Text>
-        </View>
-      );
-    }
-    
-    if (!permission.granted) {
-      return (
-        <View style={styles.cameraPage}>
-          <Text style={styles.cameraText}>No access to camera</Text>
-          <Button
-            variant="outline"
-            size="small"
+        <View style={styles.permissionContainer}>
+          <Text style={styles.permissionText}>
+            We need camera permission to take pictures
+          </Text>
+          <Button 
             rounded
             onPress={requestPermission}
           >
@@ -145,144 +308,259 @@ export const HomePage: React.FC<HomePageProps> = () => {
     }
     
     return (
-      <View style={styles.cameraPage}>
-        <View style={styles.cameraContainer}>
-          {/* Live Camera View - Always in capturing mode */}
-          <CameraView
-            ref={cameraRef}
-            style={styles.camera}
-            facing={cameraFacing}
-            onCameraReady={onCameraReady}
-          />
-        </View>
-        
-        {/* Camera Controls - Moved below camera view */}
+      <View style={styles.cameraViewContainer}>
+        {capturedImage ? (
+          // Overlay captured image with caption input
+          <View style={styles.contentContainer}>
+            <View style={styles.cameraContainer}>
+              <Image source={{ uri: capturedImage }} style={styles.capturedImage} />
+              <TextInput
+                style={styles.captionInput}
+                placeholder="Add a caption..."
+                placeholderTextColor="#aaa"
+                value={caption}
+                onChangeText={setCaption}
+              />
+              <View style={styles.buttonRow}>
+                <TouchableOpacity style={styles.retakeButton} onPress={() => setCapturedImage(null)}>
+                  <Text style={styles.buttonText}>Retake</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.postButton} onPress={handlePost}>
+                  <Text style={styles.buttonText}>Post</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.contentContainer}>
+            <View style={styles.cameraContainer}>
+              {/* Live Camera View */}
+              <CameraView
+                ref={cameraRef}
+                style={styles.camera}
+                facing={cameraFacing}
+                onCameraReady={onCameraReady}
+              />
+              
+              {/* Flash button on left */}
+              <TouchableOpacity style={styles.flashButton}>
+                <Ionicons name="flash-outline" size={24} color="#333333" />
+              </TouchableOpacity>
+              
+              {/* Zoom button on right */}
+              <TouchableOpacity style={styles.zoomButton}>
+                <Text style={styles.zoomText}>1×</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+    
+        {/* Camera Controls - Bottom row */}
         <View style={styles.cameraControls}>
-          <TouchableOpacity 
-            style={styles.cameraControlButton}
-            onPress={showUploadPaywall}
-          >
-            <Ionicons name="images" size={28} color="#FFFFFF" />
-            <Text style={styles.buttonText}>Upload</Text>
+          <TouchableOpacity style={styles.galleryButton} onPress={showUploadPaywall}>
+            <Ionicons name="images-outline" size={24} color="#333333" />
           </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={styles.snapButton}
-            onPress={takePicture}
-          >
-            <View style={styles.snapButtonInner} />
+          <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
+            <View style={styles.captureButtonInner} />
           </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={styles.cameraControlButton}
-            onPress={toggleCameraFacing}
-          >
-            <Ionicons name="camera-reverse" size={28} color="#FFFFFF" />
-            <Text style={styles.buttonText}>Flip</Text>
+          <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
+            <Ionicons name="camera-reverse-outline" size={24} color="#333333" />
           </TouchableOpacity>
-        </View>
-        
-        <View style={styles.swipeIndicator}>
-          <Ionicons name="chevron-down" size={24} color="#FFFFFF" />
-          <Text style={styles.swipeText}>Swipe down to see posts</Text>
         </View>
       </View>
     );
   };
 
-  // Render a single post as a full page
-  const renderPostPage = (item: Post) => {
-    return (
-      <View style={styles.postPage} key={item.id}>
-        <View style={styles.postImageContainer}>
-          <Image
-            source={{ uri: item.image }}
-            style={styles.postImage}
-            resizeMode="cover"
-          />
+  // Render the feed with all posts
+  const renderFeedView = () => {
+    if (loading) {
+      return (
+        <View style={styles.container}>
+          <ActivityIndicator size="large" color="#0000ff" />
         </View>
+      );
+    }
+    
+    if (posts.length === 0) {
+      return (
+        <View style={styles.container}>
+          <Text style={styles.emptyText}>No posts yet</Text>
+        </View>
+      );
+    }
+    
+    // Return null as we're now rendering posts directly in the main render function
+    return null;
+  };
 
-        <View style={styles.postInfo}>
-          <Avatar
-            source={item.avatar}
-            size="small"
-            fallback={item.user.charAt(0)}
-          />
-          <Text style={styles.postUsername}>{item.user}</Text>
-          <Text style={styles.postTime}>{item.time}</Text>
-        </View>
-        
-        <Text style={styles.postCaption}>{item.caption}</Text>
-        
-        {/* Message Input Box - Added to post view */}
-        <View style={styles.messageInputContainer}>
-          <TextInput
-            style={styles.messageInput}
-            placeholder="Send message..."
-            placeholderTextColor="#9CA3AF"
-            value={messageText}
-            onChangeText={setMessageText}
-          />
-          <View style={styles.emojiContainer}>
-            <TouchableOpacity style={styles.emojiButton}>
-              <Text style={styles.emoji}>❤️</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.emojiButton}>
-              <Text style={styles.emoji}>😍</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.emojiButton}>
-              <Text style={styles.emoji}>🔥</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.emojiButton}>
-              <Ionicons name="happy-outline" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
+  // Main render function
+  return (
+    <View style={styles.container}>
+      {/* Fixed header that stays at the top with safe area padding */}
+      <View style={[styles.fixedHeaderSafeArea, { paddingTop: insets.top }]}>
+        <View style={styles.fixedHeader}>
+          <View style={styles.postHeaderLeft}>
+            <Avatar size={32} />
+          </View>
+          <View style={styles.postHeaderCenter}>
+            <Text style={styles.postHeaderText}>Everyone</Text>
+            <Ionicons name="chevron-down" size={16} color="#333333" />
+          </View>
+          <View style={styles.postHeaderRight}>
+            <Ionicons name="chatbubble-outline" size={24} color="#333333" />
           </View>
         </View>
       </View>
-    );
-  };
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Pawket</Text>
-        <TouchableOpacity onPress={toggleLibrary}>
-          <Ionicons
-            name={showLibrary ? "grid-outline" : "images-outline"}
-            size={24}
-            color="#FFFFFF"
-          />
-        </TouchableOpacity>
+      {/* Vertical scrolling feed */}
+      <ScrollView
+        ref={scrollViewRef}
+        pagingEnabled
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        contentContainerStyle={[
+          styles.scrollViewContent, 
+          { 
+            paddingTop: insets.top + 60,
+            paddingBottom: insets.bottom + 100
+          }
+        ]}
+      >
+        {/* Camera view is always the first page */}
+        <View style={[styles.fullScreenContainer, { height: Dimensions.get('window').height - (insets.top + insets.bottom + 120) }]}>
+          {renderCameraView()}
+        </View>
+
+        {/* Post containers - each post is centered individually */}
+        {posts.map((post, index) => (
+          <View key={post.id} style={[styles.fullScreenContainer, { height: Dimensions.get('window').height - (insets.top + insets.bottom + 120) }]}>
+            <View style={[styles.centeredPostContainer, { height: centeredPostContainerHeight }]}>
+              <View style={styles.postContainer}>
+                {/* Post image */}
+                <Image
+                  source={{ uri: post.image_url }}
+                  style={styles.postImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.postOverlay}>
+                  <Text style={styles.postCaption}>{post.caption}</Text>
+                </View>
+              </View>
+              
+              <View style={styles.postAuthorSection}>
+                <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
+                <Text style={styles.authorNameText}>{post.profiles?.name || 'Irfan'}</Text>
+                <Text style={styles.postTimeText}>4h</Text>
+              </View>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* Fixed footer with message input and navigation - only show message input when not on camera view */}
+      <View style={[styles.fixedFooterSafeArea, { paddingBottom: insets.bottom }]}>
+        {currentPageIndex !== 0 && (
+          <View style={styles.floatingMessageInputWrapper}>
+            <TextInput
+              style={styles.messageInputField}
+              placeholder="Send message..."
+              placeholderTextColor="#999"
+              value={messageText}
+              onChangeText={setMessageText}
+            />
+            <View style={styles.emojiButtonsRow}>
+              <TouchableOpacity style={styles.emojiButtonItem}>
+                <Text style={styles.emojiText}>❤️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.emojiButtonItem}>
+                <Text style={styles.emojiText}>😍</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.emojiButtonItem}>
+                <Text style={styles.emojiText}>🔥</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.emojiButtonItem}>
+                <Ionicons name="happy-outline" size={24} color="#999" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        
+        <View style={styles.bottomNavBar}>
+          <TouchableOpacity style={styles.navButtonItem}>
+            <Ionicons name="grid-outline" size={24} color="#333333" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.navButtonItem, styles.centerButtonItem]}>
+            <View style={styles.centerButtonCircleItem} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navButtonItem}>
+            <Ionicons name="arrow-up-outline" size={24} color="#333333" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Main Content */}
-      {showLibrary ? (
-        <FlatList
-          data={mockPosts}
-          renderItem={renderLibraryItem}
-          keyExtractor={(item) => item.id.toString()}
-          numColumns={3}
-          contentContainerStyle={styles.libraryContainer}
-        />
-      ) : (
-        // Vertical paging scroll view with camera at top followed by posts
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.scrollView}
-          pagingEnabled
-          snapToInterval={PAGE_HEIGHT}
-          decelerationRate="fast"
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-        >
-          {/* Camera View as First Page */}
-          {renderCameraView()}
-          
-          {/* Post Pages */}
-          {mockPosts.map(post => renderPostPage(post))}
-        </ScrollView>
+      {/* Page indicators on right side */}
+      <View style={styles.pageIndicators}>
+        {[0, ...posts.map((_, i) => i + 1)].map((index) => (
+          <TouchableOpacity
+            key={index}
+            style={[
+              styles.pageIndicator,
+              currentPageIndex === index && styles.activePageIndicator,
+            ]}
+            onPress={() => scrollToPage(index)}
+          />
+        ))}
+      </View>
+
+      {/* Library toggle button */}
+      <TouchableOpacity 
+        style={styles.libraryToggleButton} 
+        onPress={() => setShowLibrary(true)}
+      >
+        <Ionicons name="images-outline" size={24} color="#333333" />
+      </TouchableOpacity>
+
+      {/* Library view (conditionally rendered) */}
+      {showLibrary && (
+        <View style={styles.libraryOverlay}>
+          <View style={styles.libraryHeader}>
+            <Text style={styles.libraryTitle}>Your Library</Text>
+            <TouchableOpacity onPress={() => setShowLibrary(false)}>
+              <Ionicons name="close" size={24} color="#333333" />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={Array(20).fill(0)}
+            numColumns={3}
+            renderItem={renderLibraryItem}
+            keyExtractor={(_, index) => `library-${index}`}
+            contentContainerStyle={styles.libraryGridContainer}
+          />
+        </View>
+      )}
+
+      {/* Paywall modal */}
+      {showPaywall && (
+        <View style={styles.paywallOverlay}>
+          <View style={styles.paywallContent}>
+            <TouchableOpacity 
+              style={styles.paywallCloseButton}
+              onPress={() => setShowPaywall(false)}
+            >
+              <Ionicons name="close" size={24} color="#333333" />
+            </TouchableOpacity>
+            <Text style={styles.paywallTitle}>Upgrade to Pro</Text>
+            <Text style={styles.paywallDescription}>
+              Get unlimited uploads, advanced filters, and more!
+            </Text>
+            <Button onPress={() => setShowPaywall(false)}>
+              Subscribe Now
+            </Button>
+          </View>
+        </View>
       )}
     </View>
   );
@@ -291,101 +569,306 @@ export const HomePage: React.FC<HomePageProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111827',
+    backgroundColor: '#FAF9F6',
   },
-  header: {
+  fixedHeaderSafeArea: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: '#FAF9F6',
+  },
+  fixedHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    padding: 12,
+    backgroundColor: '#FAF9F6',
+    width: '100%',
     borderBottomWidth: 1,
-    borderBottomColor: '#1F2937',
+    borderBottomColor: '#F0F0F0',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  fixedFooterSafeArea: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: '#FAF9F6',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
   },
-  scrollView: {
-    flex: 1,
+  scrollViewContent: {
+    // Padding will be dynamically added based on insets
   },
-  cameraPage: {
-    height: PAGE_HEIGHT,
+  fullScreenContainer: {
+    // Height will be dynamically calculated based on insets
+    width: '100%',
+    backgroundColor: '#FAF9F6',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1F2937',
   },
-  cameraContainer: {
-    width: width - 32,
-    height: width - 32,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 20,
+  centeredPostContainer: {
+    width: '90%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // Height will be set dynamically in the component
   },
-  camera: {
+  contentContainer: {
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // Height will be set dynamically in the component
+  },
+  cameraViewContainer: {
+    // Height will be set dynamically in the component
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingMessageInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 10,
+    marginTop: 5,
+    backgroundColor: '#EEEEEE',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  postAuthorSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+    paddingHorizontal: 16,
+    width: '90%',
+  },
+  messageInputWrapper: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  messageInputField: {
+    flex: 1,
+    height: 40,
+    color: '#333333',
+  },
+  emojiButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emojiButtonItem: {
+    paddingHorizontal: 8,
+  },
+  emojiText: {
+    fontSize: 20,
+  },
+  bottomNavBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingBottom: 20,
+  },
+  navButtonItem: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  centerButtonItem: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  centerButtonCircleItem: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#CCCCCC',
+  },
+  // Library toggle button
+  libraryToggleButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  // Grid container for library
+  libraryGridContainer: {
+    padding: 2,
+  },
+  postOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 12,
+  },
+  postCaption: {
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  postImage: {
     width: '100%',
     height: '100%',
   },
-  cameraText: {
-    color: 'white',
+  pageIndicators: {
+    position: 'absolute',
+    right: 16,
+    top: '50%',
+    transform: [{ translateY: -50 }],
+    zIndex: 5,
+  },
+  pageIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    marginVertical: 4,
+  },
+  activePageIndicator: {
+    backgroundColor: '#333333',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  permissionText: {
     fontSize: 16,
-    marginBottom: 16,
     textAlign: 'center',
+    marginBottom: 16,
+    color: '#333333',
+  },
+  cameraContainer: {
+    width: '90%',
+    aspectRatio: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+    position: 'relative',
+    alignSelf: 'center',
+  },
+  camera: {
+    flex: 1,
+  },
+  flashButton: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  zoomButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  zoomText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   cameraControls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 16,
-    marginHorizontal: 8,
-    marginBottom: 20,
-    width: '90%',
+    paddingBottom: 20,
+    paddingTop: 20,
   },
-  cameraControlButton: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    padding: 8,
-    width: 80,
+  galleryButton: {
+    padding: 12,
   },
-  snapButton: {
+  captureButton: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#4B5563',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#CCCCCC',
   },
-  snapButtonInner: {
+  captureButtonInner: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#6B7280',
+    backgroundColor: '#FFFFFF',
   },
-  buttonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    marginTop: 4,
+  flipButton: {
+    padding: 12,
   },
-  swipeIndicator: {
-    position: 'absolute',
-    bottom: 20,
+  postContainer: {
+    width: '90%',
+    aspectRatio: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+    position: 'relative',
+    alignSelf: 'center',
+  },
+  postHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#FAF9F6',
+    width: '90%',
+    marginBottom: 10,
+    alignSelf: 'center',
+  },
+  postHeaderLeft: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  postHeaderCenter: {
+    flex: 2,
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  swipeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    marginTop: 4,
+  postHeaderRight: {
+    flex: 1,
+    alignItems: 'flex-end',
   },
-  libraryContainer: {
-    padding: 4,
+  postHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginRight: 4,
+    color: '#333333',
   },
   libraryItem: {
-    flex: 1/3,
-    aspectRatio: 1,
+    flex: 1,
     margin: 2,
+    aspectRatio: 1,
     borderRadius: 8,
     overflow: 'hidden',
   },
@@ -393,70 +876,137 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  postPage: {
-    height: PAGE_HEIGHT,
+  libraryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FAF9F6',
+    zIndex: 10,
+  },
+  libraryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  libraryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  paywallOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
   },
-  postImageContainer: {
-    width: '100%',
-    aspectRatio: 1,
+  paywallContent: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 12,
+    padding: 24,
+    alignItems: 'center',
   },
-  postImage: {
+  paywallCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  paywallTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  paywallDescription: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    color: '#666666',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666666',
+  },
+  emptyContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#666666',
+    textAlign: 'center',
+  },
+  captionInput: {
+    position: 'absolute',
+    bottom: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+  buttonRow: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  retakeButton: {
+    backgroundColor: '#CCCCCC',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  postButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  overlayContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  capturedImage: {
     width: '100%',
     height: '100%',
   },
-  postInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  postUsername: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  authorNameText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333333',
     marginLeft: 8,
   },
-  postTime: {
+  postTimeText: {
     fontSize: 14,
     color: '#9CA3AF',
     marginLeft: 'auto',
-  },
-  postCaption: {
-    fontSize: 14,
-    color: '#E5E7EB',
-    lineHeight: 20,
-  },
-  messageInputContainer: {
-    position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(31, 41, 55, 0.8)',
-    borderRadius: 24,
-    marginHorizontal: 16,
-  },
-  messageInput: {
-    flex: 1,
-    height: 40,
-    color: '#FFFFFF',
-    paddingHorizontal: 12,
-  },
-  emojiContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  emojiButton: {
-    paddingHorizontal: 8,
-  },
-  emoji: {
-    fontSize: 20,
   },
 });
