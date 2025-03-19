@@ -40,7 +40,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabaseService, Post as PostType } from '@/services/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
-const { width, height } = Dimensions.get('window');
+const { height: screenHeight } = Dimensions.get('window');
 
 interface HomePageProps {
   // Add any props needed
@@ -70,8 +70,10 @@ export const HomePage: React.FC<HomePageProps> = () => {
   const insets = useSafeAreaInsets();
   
   // Calculate dynamic heights based on insets
-  const centeredPostContainerHeight = (Dimensions.get('window').height - (insets.top + insets.bottom + 120)) * 0.7;
-  const cameraViewContainerHeight = Dimensions.get('window').height - (insets.top + insets.bottom + 120);
+  const headerHeight = 60; // Height of the header
+  const footerHeight = 70; // Height of the footer
+  const pageHeight = screenHeight; // Full screen height for each page
+  const availableHeight = screenHeight - (insets.top + insets.bottom + headerHeight + footerHeight);
 
   // Fetch posts on component mount
   useEffect(() => {
@@ -96,7 +98,8 @@ export const HomePage: React.FC<HomePageProps> = () => {
     try {
       setLoading(true);
       const data = await supabaseService.getPosts();
-      setPosts(data);
+      // Limit to only the 4 most recent posts
+      setPosts(data.slice(0, 4));
     } catch (error) {
       console.error('Error fetching posts:', error);
       Alert.alert('Error', 'Failed to load posts');
@@ -113,7 +116,8 @@ export const HomePage: React.FC<HomePageProps> = () => {
   // Handle scroll events to update the current page index
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y;
-    const index = Math.round(offsetY / Dimensions.get('window').height);
+    const index = Math.round(offsetY / screenHeight);
+    
     if (index !== currentPageIndex) {
       setCurrentPageIndex(index);
     }
@@ -206,7 +210,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
       
       // Scroll to first post
       if (scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({ y: Dimensions.get('window').height, animated: true });
+        scrollViewRef.current.scrollTo({ y: screenHeight, animated: true });
       }
       
       Alert.alert('Success', 'Your cat photo has been posted!');
@@ -262,34 +266,18 @@ export const HomePage: React.FC<HomePageProps> = () => {
     // Navigate to Messages tab (index 2)
     router.push('/pawket');
   };
-  
-  // Like a post
-  const likePost = async (postId: number) => {
-    try {
-      await supabaseService.likePost(postId);
-      // Update local posts state
-      setPosts(prevPosts => 
-        prevPosts.map(post => 
-          post.id === postId ? { ...post, likes: post.likes + 1 } : post
-        )
-      );
-    } catch (error) {
-      console.error('Error liking post:', error);
-      Alert.alert('Error', 'Failed to like post');
-    }
-  };
 
   // Function to scroll to a specific page
   const scrollToPage = (index: number) => {
     scrollViewRef.current?.scrollTo({
-      y: index * (Dimensions.get('window').height - (insets.top + insets.bottom + 120)),
+      y: index * screenHeight,
       animated: true,
     });
   };
 
   // Render camera view with buttons
   const renderCameraView = () => {
-    if (currentPageIndex !== 0) return <View style={{ height: Dimensions.get('window').height - (insets.top + insets.bottom + 120) }} />;
+    if (currentPageIndex !== 0) return null;
     
     if (!permission) {
       return (
@@ -358,7 +346,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
         {/* Camera Controls - Bottom row */}
         <View style={styles.cameraControls}>
           <TouchableOpacity style={styles.galleryButton} onPress={showUploadPaywall}>
-            <Ionicons name="images-outline" size={24} color="#333333" />
+            <Ionicons name="images-outline" size={30} color="#333333" />
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
@@ -366,7 +354,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
-            <Ionicons name="camera-reverse-outline" size={24} color="#333333" />
+            <Ionicons name="camera-reverse-outline" size={30} color="#333333" />
           </TouchableOpacity>
         </View>
       </View>
@@ -397,9 +385,10 @@ export const HomePage: React.FC<HomePageProps> = () => {
 
   // Main render function
   return (
+    <SafeAreaView style={{ flex: 1 }}>
     <View style={styles.container}>
       {/* Fixed header that stays at the top with safe area padding */}
-      <View style={[styles.fixedHeaderSafeArea, { paddingTop: insets.top }]}>
+      <View style={[styles.fixedHeaderSafeArea, { paddingTop: 0 }]}>
         <View style={styles.fixedHeader}>
           <View style={styles.postHeaderLeft}>
             <Avatar size={32} />
@@ -421,39 +410,36 @@ export const HomePage: React.FC<HomePageProps> = () => {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={[
-          styles.scrollViewContent, 
-          { 
-            paddingTop: insets.top + 60,
-            paddingBottom: insets.bottom + 100
-          }
-        ]}
+        contentContainerStyle={styles.scrollViewContent}
       >
         {/* Camera view is always the first page */}
-        <View style={[styles.fullScreenContainer, { height: Dimensions.get('window').height - (insets.top + insets.bottom + 120) }]}>
-          {renderCameraView()}
+        <View style={[styles.pageContainer, { height: screenHeight }]}>
+          <View style={styles.contentPositioner}>
+            {renderCameraView()}
+          </View>
         </View>
 
         {/* Post containers - each post is centered individually */}
         {posts.map((post, index) => (
-          <View key={post.id} style={[styles.fullScreenContainer, { height: Dimensions.get('window').height - (insets.top + insets.bottom + 120) }]}>
-            <View style={[styles.centeredPostContainer, { height: centeredPostContainerHeight }]}>
-              <View style={styles.postContainer}>
-                {/* Post image */}
-                <Image
-                  source={{ uri: post.image_url }}
-                  style={styles.postImage}
-                  resizeMode="cover"
-                />
-                <View style={styles.postOverlay}>
-                  <Text style={styles.postCaption}>{post.caption}</Text>
+          <View key={post.id} style={[styles.pageContainer, { height: screenHeight }]}>
+            <View style={styles.contentPositioner}>
+              <View style={styles.postWrapper}>
+                <View style={styles.postAuthorSection}>
+                  <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
+                  <Text style={styles.authorNameText}>{post.profiles?.name || 'Irfan'}</Text>
+                  <Text style={styles.postTimeText}>4h</Text>
                 </View>
-              </View>
-              
-              <View style={styles.postAuthorSection}>
-                <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
-                <Text style={styles.authorNameText}>{post.profiles?.name || 'Irfan'}</Text>
-                <Text style={styles.postTimeText}>4h</Text>
+                <View style={styles.postContainer}>
+                  {/* Post image */}
+                  <Image
+                    source={{ uri: post.image_url }}
+                    style={styles.postImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.postOverlay}>
+                    <Text style={styles.postCaption}>{post.caption}</Text>
+                  </View>
+                </View>
               </View>
             </View>
           </View>
@@ -461,7 +447,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
       </ScrollView>
 
       {/* Fixed footer with message input and navigation - only show message input when not on camera view */}
-      <View style={[styles.fixedFooterSafeArea, { paddingBottom: insets.bottom }]}>
+      <View style={[styles.fixedFooterSafeArea, { paddingBottom: 0 }]}>
         {currentPageIndex !== 0 && (
           <View style={styles.floatingMessageInputWrapper}>
             <TextInput
@@ -541,30 +527,11 @@ export const HomePage: React.FC<HomePageProps> = () => {
           />
         </View>
       )}
-
-      {/* Paywall modal */}
-      {showPaywall && (
-        <View style={styles.paywallOverlay}>
-          <View style={styles.paywallContent}>
-            <TouchableOpacity 
-              style={styles.paywallCloseButton}
-              onPress={() => setShowPaywall(false)}
-            >
-              <Ionicons name="close" size={24} color="#333333" />
-            </TouchableOpacity>
-            <Text style={styles.paywallTitle}>Upgrade to Pro</Text>
-            <Text style={styles.paywallDescription}>
-              Get unlimited uploads, advanced filters, and more!
-            </Text>
-            <Button onPress={() => setShowPaywall(false)}>
-              Subscribe Now
-            </Button>
-          </View>
-        </View>
-      )}
     </View>
+    </SafeAreaView>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
@@ -600,30 +567,37 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0F0F0',
   },
   scrollViewContent: {
-    // Padding will be dynamically added based on insets
+    // No additional padding needed as we're using full screen height
   },
-  fullScreenContainer: {
-    // Height will be dynamically calculated based on insets
+  pageContainer: {
     width: '100%',
-    backgroundColor: '#FAF9F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 60, // Account for header
+    paddingBottom: 70, // Account for footer
+  },
+  contentPositioner: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -100, // Move content slightly up
+  },
+  postWrapper: {
+    width: '100%',
+    height: '80%',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  centeredPostContainer: {
-    width: '90%',
+  cameraViewContainer: {
+    width: '100%',
+    height: '80%',
     justifyContent: 'center',
     alignItems: 'center',
-    // Height will be set dynamically in the component
   },
   contentContainer: {
     width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    // Height will be set dynamically in the component
-  },
-  cameraViewContainer: {
-    // Height will be set dynamically in the component
-    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -834,6 +808,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   postHeaderRow: {
     flexDirection: 'row',
