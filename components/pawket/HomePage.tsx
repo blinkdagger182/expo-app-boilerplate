@@ -773,9 +773,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   cameraControls: {
+    width: '80%',
+    display: 'flex',
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    borderRadius: '16px',
     paddingBottom: 20,
     paddingTop: 20,
   },
