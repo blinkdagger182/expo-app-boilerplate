@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import * as SecureStore from 'expo-secure-store';
 import 'react-native-url-polyfill/auto';
 import { AppState, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
@@ -7,30 +6,47 @@ import { Buffer } from 'buffer';
 import { decode } from 'base64-arraybuffer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Custom storage adapter for Supabase
-const ExpoSecureStoreAdapter = {
-  getItem: async (key: string): Promise<string | null> => {
-    try {
-      const value = await SecureStore.getItemAsync(key);
-      return value;
-    } catch (error) {
-      console.error('Error getting item from SecureStore:', error);
-      return null;
-    }
-  },
-  setItem: async (key: string, value: string): Promise<void> => {
-    try {
-      await SecureStore.setItemAsync(key, value);
-    } catch (error) {
-      console.error('Error setting item in SecureStore:', error);
-    }
-  },
-  removeItem: async (key: string): Promise<void> => {
-    try {
-      await SecureStore.deleteItemAsync(key);
-    } catch (error) {
-      console.error('Error removing item from SecureStore:', error);
-    }
+// Custom storage adapter using AsyncStorage as a fallback when SecureStore isn't available
+const createStorageAdapter = () => {
+  try {
+    // Try to import SecureStore dynamically
+    const SecureStore = require('expo-secure-store');
+    
+    return {
+      getItem: async (key: string): Promise<string | null> => {
+        try {
+          const value = await SecureStore.getItemAsync(key);
+          return value;
+        } catch (error) {
+          console.log('Falling back to AsyncStorage for getItem');
+          return AsyncStorage.getItem(key);
+        }
+      },
+      setItem: async (key: string, value: string): Promise<void> => {
+        try {
+          await SecureStore.setItemAsync(key, value);
+        } catch (error) {
+          console.log('Falling back to AsyncStorage for setItem');
+          await AsyncStorage.setItem(key, value);
+        }
+      },
+      removeItem: async (key: string): Promise<void> => {
+        try {
+          await SecureStore.deleteItemAsync(key);
+        } catch (error) {
+          console.log('Falling back to AsyncStorage for removeItem');
+          await AsyncStorage.removeItem(key);
+        }
+      }
+    };
+  } catch (error) {
+    console.log('SecureStore not available, using AsyncStorage instead');
+    // Fallback to AsyncStorage if SecureStore is not available
+    return {
+      getItem: (key: string): Promise<string | null> => AsyncStorage.getItem(key),
+      setItem: (key: string, value: string): Promise<void> => AsyncStorage.setItem(key, value),
+      removeItem: (key: string): Promise<void> => AsyncStorage.removeItem(key)
+    };
   }
 };
 
@@ -41,7 +57,7 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOi
 // Initialize Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: ExpoSecureStoreAdapter,
+    storage: createStorageAdapter(),
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
@@ -204,8 +220,8 @@ export interface Message {
   sender_id: string;
   receiver_id: string;
   content: string;
-  deleted: boolean;
   created_at: string;
+  read: boolean;
 }
 
 export interface Detection {
@@ -820,16 +836,17 @@ class SupabaseService {
   // Message methods with pagination and optimistic updates
   async getMessages(userId: string, limit = 50, offset = 0) {
     try {
-      const client = await getAuthenticatedClient();
-      const { data: userData } = await client.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
-      
-      const cacheKey = `messages_${userData.user.id}_${userId}_${limit}_${offset}`;
+      // Try to get from cache first
+      const cacheKey = `messages_${userId}_${limit}_${offset}`;
       const cachedMessages = await AsyncStorage.getItem(cacheKey);
       
       if (cachedMessages) {
         return JSON.parse(cachedMessages);
       }
+      
+      const client = await getAuthenticatedClient();
+      const { data: userData } = await client.auth.getUser();
+      if (!userData.user) throw new Error('User not authenticated');
       
       const { data, error } = await client
         .from('messages')
@@ -880,6 +897,64 @@ class SupabaseService {
     } catch (error) {
       console.error('Error in sendMessage:', error);
       throw error;
+    }
+  }
+
+  async subscribeToMessages(callback: (payload: any) => void) {
+    try {
+      const client = await getAuthenticatedClient();
+      const { data: userData } = await client.auth.getUser();
+      if (!userData.user) throw new Error('User not authenticated');
+      
+      const channel = client
+        .channel('messages')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `receiver_id=eq.${userData.user.id}`,
+          },
+          callback
+        );
+      
+      // Add error handling with reconnection logic
+      channel.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.error('Channel error for messages');
+          // Attempt to reconnect after a delay
+          setTimeout(() => {
+            channel.subscribe();
+          }, 5000);
+        }
+      });
+      
+      return channel;
+    } catch (error) {
+      console.error('Error in subscribeToMessages:', error);
+      throw error;
+    }
+  }
+
+  async markMessagesAsRead(messageIds: number[]) {
+    try {
+      const client = await getAuthenticatedClient();
+      
+      const { error } = await client
+        .from('messages')
+        .update({ read: true })
+        .in('id', messageIds);
+      
+      if (error) {
+        console.error('Error marking messages as read:', error);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in markMessagesAsRead:', error);
+      return false;
     }
   }
 
@@ -980,43 +1055,6 @@ class SupabaseService {
       return channel;
     } catch (error) {
       console.error('Error in subscribeToFriendRequests:', error);
-      throw error;
-    }
-  }
-
-  async subscribeToMessages(callback: (payload: any) => void) {
-    try {
-      const client = await getAuthenticatedClient();
-      const { data: userData } = await client.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
-      
-      const channel = client
-        .channel('messages')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `receiver_id=eq.${userData.user.id}`,
-          },
-          callback
-        );
-      
-      // Add error handling with reconnection logic
-      channel.subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.error('Channel error for messages');
-          // Attempt to reconnect after a delay
-          setTimeout(() => {
-            channel.subscribe();
-          }, 5000);
-        }
-      });
-      
-      return channel;
-    } catch (error) {
-      console.error('Error in subscribeToMessages:', error);
       throw error;
     }
   }

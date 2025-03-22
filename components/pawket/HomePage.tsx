@@ -32,13 +32,41 @@ import { Button } from './Button';
 import { Input } from './Input';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import { useSuperwall } from '@/hooks/useSuperwall';
 import { SUPERWALL_TRIGGERS } from '@/config/superwall';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabaseService, Post as PostType } from '@/services/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
+
+// Create a fallback camera component
+const createCameraComponents = () => {
+  try {
+    // Try to import Camera dynamically
+    const ExpoCamera = require('expo-camera');
+    return {
+      CameraView: ExpoCamera.CameraView,
+      useCameraPermissions: ExpoCamera.useCameraPermissions
+    };
+  } catch (error) {
+    console.log('ExpoCamera not available, using fallback components');
+    // Fallback components when Camera is not available
+    return {
+      CameraView: (props: any) => (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111827' }}>
+          <Text style={{ color: 'white', textAlign: 'center', padding: 20 }}>
+            Camera not available in this environment.{'\n'}
+            Try using the library instead.
+          </Text>
+          {props.children}
+        </View>
+      ),
+      useCameraPermissions: () => [{ granted: false }, () => Promise.resolve(false)]
+    };
+  }
+};
+
+const { CameraView, useCameraPermissions } = createCameraComponents();
 
 const { height: screenHeight } = Dimensions.get('window');
 
