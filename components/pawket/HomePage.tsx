@@ -80,10 +80,20 @@ export const HomePage: React.FC<HomePageProps> = () => {
     fetchPosts();
     
     // Set up real-time subscription for new posts
-    const subscription = supabaseService.subscribeToFriendRequests((payload) => {
-      // Refresh posts when a new post is added
-      fetchPosts();
-    });
+    let subscription: any = null;
+    
+    const setupSubscription = async () => {
+      try {
+        subscription = await supabaseService.subscribeToFriendRequests((payload) => {
+          // Refresh posts when a new post is added
+          fetchPosts();
+        });
+      } catch (error) {
+        console.error('Error setting up subscription:', error);
+      }
+    };
+    
+    setupSubscription();
     
     return () => {
       // Clean up subscription
