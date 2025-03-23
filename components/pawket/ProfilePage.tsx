@@ -66,15 +66,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = () => {
   // Fetch user posts from Supabase
   const fetchUserPosts = async () => {
     try {
-      if (!user) return;
       setLoading(true);
-      const data = await supabaseService.getPosts();
-      // Filter posts to only show the current user's posts
-      const userPosts = data.filter((post: Post) => post.user_id === user.id);
-      setPosts(userPosts);
+      // Use the userId parameter to get only the user's posts
+      const { posts } = await supabaseService.getPosts(100, 0, user?.id);
+      setPosts(posts || []);
     } catch (error) {
       console.error('Error fetching posts:', error);
       Alert.alert('Error', 'Failed to load posts');
+      setPosts([]); // Set empty array as fallback
     } finally {
       setLoading(false);
     }
@@ -84,24 +83,30 @@ export const ProfilePage: React.FC<ProfilePageProps> = () => {
   const fetchUserStats = async () => {
     try {
       if (!user) return;
-      // Get post count from filtered posts
-      const data = await supabaseService.getPosts();
-      const userPosts = data.filter((post: Post) => post.user_id === user.id);
+      
+      // Get post count from filtered posts - use the userId parameter to get only the user's posts
+      const { posts } = await supabaseService.getPosts(100, 0, user.id);
       
       // Get friends count
       const friends = await supabaseService.getFriends();
-      const userFriends = friends.filter((friend: Friend) => 
+      const userFriends = (friends || []).filter((friend: Friend) => 
         friend.user_id === user.id || friend.friend_id === user.id
       );
       
       // Set stats
       setStats({
-        posts: userPosts.length,
+        posts: (posts || []).length,
         friends: userFriends.length,
         likes: 0 // This would need a separate query
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Set default values in case of error
+      setStats({
+        posts: 0,
+        friends: 0,
+        likes: 0
+      });
     }
   };
 

@@ -44,10 +44,8 @@ export default function RootLayout() {
           <OnboardingProvider>
             <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
               <Stack screenOptions={{ headerShown: false }}>
-                {/* Remove the direct references to index and pawket routes since they're in (tabs) */}
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="onboard" />
-                <Stack.Screen name="onboarding" />
+                <Stack.Screen name="onboarding" options={{ headerShown: false }} />
                 <Stack.Screen name="(auth)" options={{ headerShown: false }} />
               </Stack>
               <StatusBar style="light" />

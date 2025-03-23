@@ -1,4 +1,4 @@
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
@@ -11,7 +11,7 @@ export default function WelcomeScreen() {
   const router = useRouter();
 
   const handleNext = () => {
-    router.push('/onboarding/problem');
+    router.push('/onboarding/features');
   };
 
   return (
@@ -20,13 +20,13 @@ export default function WelcomeScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
           <View style={styles.main}>
-            <MaterialCommunityIcons name="star" size={64} color="#0A7EA4" />
+            <MaterialCommunityIcons name="cat" size={84} color="#0A7EA4" />
             <ThemedText type="title" style={styles.title}>
-              Your App Name
+              Welcome to Pawket
             </ThemedText>
             <View style={styles.subtitleContainer}>
               <ThemedText style={styles.subtitle}>
-                A short, compelling tagline that captures your app's value
+                Share your favorite pet moments with friends and discover adorable pets around the world
               </ThemedText>
             </View>
           </View>
@@ -45,44 +45,48 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FAF9F6',
   },
   safeArea: {
     flex: 1,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    padding: 24,
     justifyContent: 'space-between',
-    paddingVertical: 24,
   },
   main: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: 24,
+    alignItems: 'center',
   },
   title: {
-    fontSize: 36,
+    fontSize: 32,
+    fontWeight: 'bold',
     textAlign: 'center',
-    paddingHorizontal: 16,
+    marginTop: 24,
+    color: '#0A7EA4',
   },
   subtitleContainer: {
-    paddingHorizontal: 32,
+    marginTop: 16,
+    paddingHorizontal: 24,
   },
   subtitle: {
     fontSize: 18,
-    opacity: 0.7,
     textAlign: 'center',
+    color: '#666',
     lineHeight: 24,
   },
   button: {
     backgroundColor: '#0A7EA4',
-    padding: 20,
-    borderRadius: 16,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     alignItems: 'center',
+    marginBottom: 24,
   },
   buttonText: {
     color: 'white',
     fontSize: 18,
   },
-}); 
+});

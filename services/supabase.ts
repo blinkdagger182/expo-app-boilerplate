@@ -417,10 +417,13 @@ class SupabaseService {
   }
 
   // Post methods
-  async getPosts() {
+  async getPosts(limit = 10, offset = 0, userId?: string) {
     try {
+      // Create a cache key that includes pagination parameters
+      const cacheKey = `${POSTS_CACHE_KEY}_${limit}_${offset}_${userId || 'all'}`;
+      
       // Try to get from cache first
-      const cachedPosts = await AsyncStorage.getItem(POSTS_CACHE_KEY);
+      const cachedPosts = await AsyncStorage.getItem(cacheKey);
       if (cachedPosts) {
         return JSON.parse(cachedPosts);
       }
@@ -431,138 +434,73 @@ class SupabaseService {
       
       console.log('Fetching posts for user:', userData.user.id);
       
-      const { data: friendsData, error: friendsError } = await client
-        .from('friends')
-        .select('friend_id')
-        .eq('user_id', userData.user.id)
-        .eq('status', 'accepted');
+      // If userId is provided, only fetch posts from that user (for library view)
+      let friendIds: string[] = [];
       
-      if (friendsError) {
-        console.error('Error fetching friends:', friendsError);
-        // If friends table doesn't exist, just show the user's own posts
-        const friendIds = [userData.user.id];
+      if (!userId) {
+        // Get friends list for feed view
+        const { data: friendsData, error: friendsError } = await client
+          .from('friends')
+          .select('friend_id')
+          .eq('user_id', userData.user.id)
+          .eq('status', 'accepted');
         
-        try {
-          // Try to fetch posts without the profiles join first
-          const { data, error } = await client
-            .from('posts')
-            .select('*')
-            .in('user_id', friendIds)
-            .eq('deleted', false)
-            .order('created_at', { ascending: false });
-          
-          if (error) {
-            console.error('Error fetching posts without profiles:', error);
-            return [] as Post[]; // Return empty array if posts table doesn't exist
-          }
-          
-          // For each post, fetch the profile separately and generate signed URL
-          const postsWithProfiles = await Promise.all(
-            data.map(async (post) => {
-              try {
-                const profile = await this.getProfile(post.user_id);
-                // Generate signed URL for the post image
-                const signedImageUrl = await this.getPostImageUrl(post.image_url);
-                return { 
-                  ...post, 
-                  profiles: profile,
-                  image_url: signedImageUrl // Replace with signed URL
-                };
-              } catch (error) {
-                console.error('Error processing post:', error);
-                return post; // Return post without profile if error
-              }
-            })
-          );
-          
-          // Cache the posts
-          await AsyncStorage.setItem(POSTS_CACHE_KEY, JSON.stringify(postsWithProfiles));
-          return postsWithProfiles as Post[];
-        } catch (error) {
-          console.error('Error in alternative posts fetch:', error);
-          return [] as Post[];
+        if (friendsError) {
+          console.error('Error fetching friends:', friendsError);
+          // If friends table doesn't exist, just show the user's own posts
+          friendIds = [userData.user.id];
+        } else {
+          friendIds = (friendsData || []).map(f => f.friend_id);
+          friendIds.push(userData.user.id); // Include user's own posts
         }
+      } else {
+        // For library view, only show posts from the specified user
+        friendIds = [userId];
       }
       
-      const friendIds = friendsData.map(f => f.friend_id);
-      friendIds.push(userData.user.id); // Include user's own posts
+      // Fetch posts without the profiles join
+      const { data, error, count } = await client
+        .from('posts')
+        .select('*', { count: 'exact' })
+        .in('user_id', friendIds)
+        .eq('deleted', false)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
       
-      try {
-        // Try with the join first
-        const { data, error } = await client
-          .from('posts')
-          .select('*, profiles(name, avatar_url)')
-          .in('user_id', friendIds)
-          .eq('deleted', false)
-          .order('created_at', { ascending: false });
-        
-        if (error) {
-          console.error('Error fetching posts with profiles join:', error);
-          
-          // If the join fails, try without it
-          const { data: postsData, error: postsError } = await client
-            .from('posts')
-            .select('*')
-            .in('user_id', friendIds)
-            .eq('deleted', false)
-            .order('created_at', { ascending: false });
-          
-          if (postsError) {
-            console.error('Error fetching posts without join:', postsError);
-            return [] as Post[];
-          }
-          
-          // For each post, fetch the profile separately and generate signed URL
-          const postsWithProfiles = await Promise.all(
-            postsData.map(async (post) => {
-              try {
-                const profile = await this.getProfile(post.user_id);
-                // Generate signed URL for the post image
-                const signedImageUrl = await this.getPostImageUrl(post.image_url);
-                return { 
-                  ...post, 
-                  profiles: profile,
-                  image_url: signedImageUrl // Replace with signed URL
-                };
-              } catch (error) {
-                console.error('Error processing post:', error);
-                return post; // Return post without profile if error
-              }
-            })
-          );
-          
-          // Cache the posts
-          await AsyncStorage.setItem(POSTS_CACHE_KEY, JSON.stringify(postsWithProfiles));
-          return postsWithProfiles as Post[];
-        }
-        
-        // Generate signed URLs for posts that were fetched with the join
-        const postsWithSignedUrls = await Promise.all(
-          data.map(async (post) => {
-            try {
-              // Generate signed URL for the post image
-              const signedImageUrl = await this.getPostImageUrl(post.image_url);
-              return {
-                ...post,
-                image_url: signedImageUrl // Replace with signed URL
-              };
-            } catch (error) {
-              console.error('Error generating signed URL for post:', error);
-              return post; // Return post with original URL if error
-            }
-          })
-        );
-        
-        // Cache the posts
-        await AsyncStorage.setItem(POSTS_CACHE_KEY, JSON.stringify(postsWithSignedUrls));
-        return postsWithSignedUrls as Post[];
-      } catch (error) {
-        console.error('Error in getPosts:', error);
-        return [] as Post[];
+      if (error) {
+        console.error('Error fetching posts:', error);
+        return { posts: [] as Post[], count: 0 };
       }
+      
+      // For each post, fetch the profile separately and generate signed URL
+      const postsWithProfiles = await Promise.all(
+        (data || []).map(async (post) => {
+          try {
+            const profile = await this.getProfile(post.user_id);
+            // Generate signed URL for the post image
+            const signedImageUrl = await this.getPostImageUrl(post.image_url);
+            return { 
+              ...post, 
+              profiles: profile,
+              image_url: signedImageUrl // Replace with signed URL
+            };
+          } catch (error) {
+            console.error('Error processing post:', error);
+            return post; // Return post without profile if error
+          }
+        })
+      );
+      
+      // Cache the posts with pagination info
+      await AsyncStorage.setItem(cacheKey, JSON.stringify({ 
+        posts: postsWithProfiles, 
+        count 
+      }));
+      
+      return { posts: postsWithProfiles as Post[], count };
     } catch (error) {
-      console.error('Error in getPosts:', error);
-      return [] as Post[];
+      console.error('Error fetching posts:', error);
+      return { posts: [] as Post[], count: 0 };
     }
   }
 
@@ -681,30 +619,51 @@ class SupabaseService {
   // Friend methods
   async getFriends() {
     try {
-      // Try to get from cache first
-      const cachedFriends = await AsyncStorage.getItem(FRIENDS_CACHE_KEY);
-      if (cachedFriends) {
-        return JSON.parse(cachedFriends);
-      }
-      
       const client = await getAuthenticatedClient();
       const { data: userData } = await client.auth.getUser();
       if (!userData.user) throw new Error('User not authenticated');
       
-      const { data, error } = await client
-        .from('friends')
-        .select('*, profiles!friends_friend_id_fkey(name, avatar_url)')
-        .eq('user_id', userData.user.id)
-        .eq('status', 'accepted');
-      
-      if (error) throw error;
-      
-      // Cache the friends
-      await AsyncStorage.setItem(FRIENDS_CACHE_KEY, JSON.stringify(data));
-      return data as Friend[];
+      try {
+        // Get all friendships where the user is either the user_id or friend_id
+        const { data, error } = await client
+          .from('friends')
+          .select('*')
+          .or(`user_id.eq.${userData.user.id},friend_id.eq.${userData.user.id}`)
+          .eq('status', 'accepted');
+        
+        if (error) {
+          console.error('Error in getFriends:', error);
+          return [];
+        }
+        
+        if (!data || data.length === 0) {
+          return []; // Return empty array if no friends found
+        }
+        
+        // For each friend, fetch their profile separately
+        const friendsWithProfiles = await Promise.all(
+          data.map(async (friend) => {
+            try {
+              // Determine which ID is the friend's ID
+              const friendId = friend.user_id === userData.user.id ? friend.friend_id : friend.user_id;
+              const profile = await this.getProfile(friendId);
+              return { ...friend, profiles: profile };
+            } catch (error) {
+              console.error('Error fetching friend profile:', error);
+              return friend;
+            }
+          })
+        );
+        
+        return friendsWithProfiles;
+      } catch (error) {
+        // Handle specific table-not-found errors or other Supabase errors
+        console.error('Specific error in getFriends:', error);
+        return [];
+      }
     } catch (error) {
-      console.error('Error in getFriends:', error);
-      throw error;
+      console.error('General error in getFriends:', error);
+      return [];
     }
   }
 
@@ -838,6 +797,7 @@ class SupabaseService {
     try {
       // Try to get from cache first
       const cacheKey = `messages_${userId}_${limit}_${offset}`;
+      
       const cachedMessages = await AsyncStorage.getItem(cacheKey);
       
       if (cachedMessages) {
@@ -1024,19 +984,21 @@ class SupabaseService {
   // Subscription methods with improved error handling and reconnection logic
   async subscribeToFriendRequests(callback: (payload: any) => void) {
     try {
-      const client = await getAuthenticatedClient();
-      const { data: userData } = await client.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
+      const userData = await this.getCurrentUser();
+      if (!userData) {
+        throw new Error('No authenticated user');
+      }
       
+      const client = await getAuthenticatedClient();
       const channel = client
         .channel('friend-requests')
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: '*',
             schema: 'public',
             table: 'friends',
-            filter: `friend_id=eq.${userData.user.id}`,
+            filter: `friend_id=eq.${userData.id}`,
           },
           callback
         );
@@ -1056,6 +1018,56 @@ class SupabaseService {
     } catch (error) {
       console.error('Error in subscribeToFriendRequests:', error);
       throw error;
+    }
+  }
+
+  async subscribeToPosts(callback: (payload: any) => void) {
+    try {
+      const userData = await this.getCurrentUser();
+      if (!userData) {
+        throw new Error('No authenticated user');
+      }
+      
+      const client = await getAuthenticatedClient();
+      
+      // Create a channel to listen for all post changes
+      // Instead of filtering by friend IDs which might cause issues,
+      // we'll listen to all post changes and let the client filter them
+      const channel = client
+        .channel('posts-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
+            schema: 'public',
+            table: 'posts',
+          },
+          (payload) => {
+            console.log('Post change detected:', payload);
+            // Call the callback with the payload
+            callback(payload);
+          }
+        );
+      
+      // Add error handling with reconnection logic
+      channel.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.error('Channel error, attempting to reconnect in 5 seconds');
+          setTimeout(() => {
+            channel.subscribe();
+          }, 5000);
+        } else if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to post changes');
+        }
+      });
+      
+      return channel;
+    } catch (error) {
+      console.error('Error in subscribeToPosts:', error);
+      // Return a dummy channel object that won't cause errors if unsubscribe is called
+      return {
+        unsubscribe: () => console.log('Dummy unsubscribe called')
+      };
     }
   }
 

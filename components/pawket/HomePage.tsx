@@ -24,7 +24,8 @@ import {
   Alert,
   TextInput,
   ActivityIndicator,
-  Platform
+  Platform,
+  AppState
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from './Avatar';
@@ -32,7 +33,7 @@ import { Button } from './Button';
 import { Input } from './Input';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSuperwall } from '@/hooks/useSuperwall';
 import { SUPERWALL_TRIGGERS } from '@/config/superwall';
 import { useAuth } from '@/contexts/AuthContext';
@@ -90,12 +91,19 @@ export const HomePage: React.FC<HomePageProps> = () => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalPosts, setTotalPosts] = useState(0);
+  const POSTS_PER_PAGE = 10;
+  
   const cameraRef = useRef<any>(null);
   const { showPaywall: showSuperwallPaywall } = useSuperwall();
   const [permission, requestPermission] = useCameraPermissions();
   const scrollViewRef = useRef<ScrollView>(null);
   const { user, profile } = useAuth();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   
   // Calculate dynamic heights based on insets
   const headerHeight = 60; // Height of the header
@@ -103,41 +111,34 @@ export const HomePage: React.FC<HomePageProps> = () => {
   const pageHeight = screenHeight; // Full screen height for each page
   const availableHeight = screenHeight - (insets.top + insets.bottom + headerHeight + footerHeight);
 
-  // Fetch posts on component mount
-  useEffect(() => {
-    fetchPosts();
-    
-    // Set up real-time subscription for new posts
-    let subscription: any = null;
-    
-    const setupSubscription = async () => {
-      try {
-        subscription = await supabaseService.subscribeToFriendRequests((payload) => {
-          // Refresh posts when a new post is added
-          fetchPosts();
-        });
-      } catch (error) {
-        console.error('Error setting up subscription:', error);
-      }
-    };
-    
-    setupSubscription();
-    
-    return () => {
-      // Clean up subscription
-      if (subscription) {
-        subscription.unsubscribe();
-      }
-    };
-  }, []);
-  
   // Fetch posts from Supabase
-  const fetchPosts = async () => {
+  const fetchPosts = async (reset = false) => {
     try {
+      if (reset) {
+        setPage(1);
+        setHasMore(true);
+      }
+      
       setLoading(true);
-      const data = await supabaseService.getPosts();
-      // Limit to only the 4 most recent posts
-      setPosts(data.slice(0, 4));
+      const currentPage = reset ? 1 : page;
+      const offset = (currentPage - 1) * POSTS_PER_PAGE;
+      
+      // Use the userId parameter for library view
+      const userId = showLibrary ? user?.id : undefined;
+      const { posts: fetchedPosts, count } = await supabaseService.getPosts(POSTS_PER_PAGE, offset, userId);
+      
+      if (reset) {
+        setPosts(fetchedPosts);
+      } else {
+        setPosts(prev => [...prev, ...fetchedPosts]);
+      }
+      
+      setTotalPosts(count || 0);
+      setHasMore(fetchedPosts.length === POSTS_PER_PAGE && (offset + fetchedPosts.length) < (count || 0));
+      
+      if (!reset) {
+        setPage(currentPage + 1);
+      }
     } catch (error) {
       console.error('Error fetching posts:', error);
       Alert.alert('Error', 'Failed to load posts');
@@ -146,9 +147,68 @@ export const HomePage: React.FC<HomePageProps> = () => {
     }
   };
   
-  // Toggle between grid and timeline view
+  // Toggle between feed and library view
   const toggleLibrary = () => {
-    setShowLibrary(!showLibrary);
+    const newShowLibrary = !showLibrary;
+    setShowLibrary(newShowLibrary);
+    // Fetch posts with the new view setting
+    fetchPosts(true);
+  };
+  
+  // Fetch posts and handle app state changes
+  useEffect(() => {
+    // Initial fetch
+    fetchPosts(true);
+    
+    // Set up real-time subscription for new posts
+    let postSubscription: any = null;
+    let friendSubscription: any = null;
+    
+    const setupSubscriptions = async () => {
+      try {
+        // Subscribe to friend requests
+        friendSubscription = await supabaseService.subscribeToFriendRequests((payload) => {
+          console.log('Friend request received:', payload);
+        });
+        
+        // Subscribe to post changes (new posts, updates, deletes)
+        postSubscription = await supabaseService.subscribeToPosts((payload) => {
+          console.log('Post change detected:', payload);
+          // Refresh posts when a post is added, updated, or deleted
+          fetchPosts(true);
+        });
+      } catch (error) {
+        console.error('Error setting up subscriptions:', error);
+      }
+    };
+    
+    setupSubscriptions();
+    
+    // Set up AppState listener to refresh posts when app comes to foreground
+    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('App has come to the foreground - refreshing posts');
+        fetchPosts(true);
+      }
+    });
+    
+    return () => {
+      // Clean up subscriptions
+      if (friendSubscription) {
+        friendSubscription.unsubscribe();
+      }
+      if (postSubscription) {
+        postSubscription.unsubscribe();
+      }
+      appStateSubscription.remove();
+    };
+  }, []);
+  
+  // Load more posts when reaching the end of the list
+  const loadMorePosts = () => {
+    if (!loading && hasMore) {
+      fetchPosts();
+    }
   };
 
   // Handle scroll events to update the current page index
@@ -167,7 +227,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
       <TouchableOpacity style={styles.libraryItem}>
         <Image
           source={{ uri: item.image_url }}
-          style={styles.libraryItemImage}
+          style={styles.libraryImage}
           resizeMode="cover"
         />
       </TouchableOpacity>
@@ -399,28 +459,6 @@ export const HomePage: React.FC<HomePageProps> = () => {
     );
   };
 
-  // Render the feed with all posts
-  const renderFeedView = () => {
-    if (loading) {
-      return (
-        <View style={styles.container}>
-          <ActivityIndicator size="large" color="#0000ff" />
-        </View>
-      );
-    }
-    
-    if (posts.length === 0) {
-      return (
-        <View style={styles.container}>
-          <Text style={styles.emptyText}>No posts yet</Text>
-        </View>
-      );
-    }
-    
-    // Return null as we're now rendering posts directly in the main render function
-    return null;
-  };
-
   // Main render function
   return (
     <SafeAreaView style={{ flex: 1 }}>
@@ -432,58 +470,136 @@ export const HomePage: React.FC<HomePageProps> = () => {
             <Avatar size={32} />
           </View>
           <View style={styles.postHeaderCenter}>
-            <Text style={styles.postHeaderText}>Everyone</Text>
+            <Text style={styles.postHeaderText}>{showLibrary ? "My Library" : "Everyone"}</Text>
             <Ionicons name="chevron-down" size={16} color="#333333" />
           </View>
           <View style={styles.postHeaderRight}>
-            <Ionicons name="chatbubble-outline" size={24} color="#333333" />
+            <TouchableOpacity onPress={toggleLibrary}>
+              <Ionicons 
+                name={showLibrary ? "people-outline" : "library-outline"} 
+                size={24} 
+                color="#333333" 
+              />
+            </TouchableOpacity>
           </View>
         </View>
       </View>
 
-      {/* Vertical scrolling feed */}
-      <ScrollView
-        ref={scrollViewRef}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        contentContainerStyle={styles.scrollViewContent}
-      >
-        {/* Camera view is always the first page */}
-        <View style={[styles.pageContainer, { height: screenHeight }]}>
-          <View style={styles.contentPositioner}>
+      {/* Conditional rendering based on showLibrary state */}
+      {loading && page === 1 ? (
+        <View style={styles.fullScreenLoader}>
+          <ActivityIndicator size="large" color="#0000ff" />
+          <Text style={styles.loadingText}>Loading posts...</Text>
+        </View>
+      ) : showLibrary ? (
+        // Library view with pagination
+        <FlatList
+          data={posts}
+          keyExtractor={(item) => item.id.toString()}
+          numColumns={2}
+          contentContainerStyle={styles.libraryContainer}
+          renderItem={({ item }) => (
+            <TouchableOpacity 
+              style={styles.libraryItem}
+              onPress={() => {
+                // Handle post selection
+                Alert.alert('Post', item.caption || 'No caption');
+              }}
+            >
+              <Image 
+                source={{ uri: item.image_url }} 
+                style={styles.libraryImage} 
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No posts in your library</Text>
+            </View>
+          }
+          ListFooterComponent={
+            loading ? (
+              <View style={styles.loadingMoreContainer}>
+                <ActivityIndicator size="small" color="#0000ff" />
+                <Text style={styles.loadingText}>Loading more posts...</Text>
+              </View>
+            ) : !hasMore && posts.length > 0 ? (
+              <View style={styles.endOfLibraryContainer}>
+                <Text style={styles.endOfFeedText}>You've reached the end!</Text>
+              </View>
+            ) : null
+          }
+          onEndReached={loadMorePosts}
+          onEndReachedThreshold={0.5}
+          refreshing={loading && page === 1}
+          onRefresh={() => fetchPosts(true)}
+        />
+      ) : (
+        /* Vertical scrolling feed */
+        <ScrollView
+          ref={scrollViewRef}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.scrollViewContent}
+          onMomentumScrollEnd={(event) => {
+            // Check if we're near the end and should load more
+            const offsetY = event.nativeEvent.contentOffset.y;
+            const contentHeight = event.nativeEvent.contentSize.height;
+            const scrollViewHeight = event.nativeEvent.layoutMeasurement.height;
+            
+            if (offsetY + scrollViewHeight >= contentHeight - 20) {
+              loadMorePosts();
+            }
+          }}
+        >
+          {/* Camera view */}
+          <View style={[styles.pageContainer, { height: pageHeight }]}>
             {renderCameraView()}
           </View>
-        </View>
 
-        {/* Post containers - each post is centered individually */}
-        {posts.map((post, index) => (
-          <View key={post.id} style={[styles.pageContainer, { height: screenHeight }]}>
-            <View style={styles.contentPositioner}>
-              <View style={styles.postWrapper}>
-                <View style={styles.postAuthorSection}>
-                  <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
-                  <Text style={styles.authorNameText}>{post.profiles?.name || 'Irfan'}</Text>
-                  <Text style={styles.postTimeText}>4h</Text>
-                </View>
-                <View style={styles.postContainer}>
-                  {/* Post image */}
-                  <Image
-                    source={{ uri: post.image_url }}
-                    style={styles.postImage}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.postOverlay}>
-                    <Text style={styles.postCaption}>{post.caption}</Text>
+          {/* Posts */}
+          {posts.map((post, index) => (
+            <View key={`post-${post.id}-${index}`} style={[styles.pageContainer, { height: pageHeight }]}>
+              <View style={styles.contentPositioner}>
+                <View style={styles.postWrapper}>
+                  <View style={styles.postAuthorSection}>
+                    <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
+                    <Text style={styles.authorNameText}>{post.profiles?.name || 'Irfan'}</Text>
+                    <Text style={styles.postTimeText}>4h</Text>
+                  </View>
+                  <View style={styles.postContainer}>
+                    {/* Post image */}
+                    <Image
+                      source={{ uri: post.image_url }}
+                      style={styles.postImage}
+                      resizeMode="cover"
+                    />
+                    <View style={styles.postOverlay}>
+                      <Text style={styles.postCaption}>{post.caption}</Text>
+                    </View>
                   </View>
                 </View>
               </View>
             </View>
-          </View>
-        ))}
-      </ScrollView>
-
+          ))}
+          
+          {hasMore && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#0000ff" />
+              <Text style={styles.loadingText}>Loading more posts...</Text>
+            </View>
+          )}
+          {!hasMore && posts.length > 0 && (
+            <View style={styles.endOfFeedContainer}>
+              <Text style={styles.endOfFeedText}>You've reached the end!</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+      
       {/* Fixed footer with message input and navigation - only show message input when not on camera view */}
       <View style={[styles.fixedFooterSafeArea, { paddingBottom: 0 }]}>
         {currentPageIndex !== 0 && (
@@ -569,7 +685,6 @@ export const HomePage: React.FC<HomePageProps> = () => {
     </SafeAreaView>
   );
 };
-
 
 const styles = StyleSheet.create({
   container: {
@@ -887,14 +1002,51 @@ const styles = StyleSheet.create({
   },
   libraryItem: {
     flex: 1,
-    margin: 2,
-    aspectRatio: 1,
+    margin: 4,
     borderRadius: 8,
     overflow: 'hidden',
+    backgroundColor: '#f5f5f5',
   },
-  libraryItemImage: {
+  libraryImage: {
     width: '100%',
-    height: '100%',
+    height: 150,
+    resizeMode: 'cover',
+    borderRadius: 8,
+  },
+  libraryContainer: {
+    padding: 16,
+  },
+  loadingMoreContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+    height: screenHeight / 2,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+  },
+  likesText: {
+    fontSize: 14,
+    color: '#666666',
+    padding: 12,
+  },
+  postActionsContainer: {
+    padding: 12,
   },
   libraryOverlay: {
     position: 'absolute',
@@ -917,64 +1069,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  paywallOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 20,
-  },
-  paywallContent: {
-    width: '80%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-  },
-  paywallCloseButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-  },
-  paywallTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  paywallDescription: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 24,
-    color: '#666666',
-  },
   loadingContainer: {
     justifyContent: 'center',
     alignItems: 'center',
+    height: screenHeight,
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
     color: '#666666',
-  },
-  emptyContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#666666',
-    textAlign: 'center',
   },
   captionInput: {
     position: 'absolute',
@@ -1028,5 +1131,65 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
     marginLeft: 'auto',
+  },
+  paywallOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  paywallContent: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+  },
+  paywallCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  paywallTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  paywallDescription: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    color: '#666666',
+  },
+  fullScreenLoader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  endOfFeedContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: screenHeight,
+  },
+  endOfFeedText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#666666',
+  },
+  endOfLibraryContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
   },
 });

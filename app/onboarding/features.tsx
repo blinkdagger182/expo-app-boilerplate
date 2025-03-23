@@ -1,11 +1,45 @@
-import { StyleSheet, View, ScrollView } from 'react-native';
+import { StyleSheet, View, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';
+
+type Feature = {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+};
+
+const features: Feature[] = [
+  {
+    id: '1',
+    title: 'Share Pet Photos',
+    description: 'Capture and share adorable moments of your pets with friends and family',
+    icon: 'camera',
+  },
+  {
+    id: '2',
+    title: 'Connect with Friends',
+    description: 'Find and connect with other pet lovers around the world',
+    icon: 'account-group',
+  },
+  {
+    id: '3',
+    title: 'Automatic Detection',
+    description: 'Our AI automatically detects cats in your photos',
+    icon: 'cat',
+  },
+  {
+    id: '4',
+    title: 'Library View',
+    description: 'View your posts in a beautiful grid layout or as a feed',
+    icon: 'view-grid',
+  },
+];
 
 export default function FeaturesScreen() {
   const router = useRouter();
@@ -14,44 +48,46 @@ export default function FeaturesScreen() {
     router.push('/onboarding/final');
   };
 
+  const renderFeatureItem = ({ item }: { item: Feature }) => (
+    <View style={styles.featureItem}>
+      <View style={styles.iconContainer}>
+        <MaterialCommunityIcons name={item.icon as any} size={32} color="#0A7EA4" />
+      </View>
+      <View style={styles.featureTextContainer}>
+        <ThemedText type="defaultSemiBold" style={styles.featureTitle}>
+          {item.title}
+        </ThemedText>
+        <ThemedText style={styles.featureDescription}>
+          {item.description}
+        </ThemedText>
+      </View>
+    </View>
+  );
+
   return (
     <ThemedView style={styles.container}>
+      <StatusBar style="auto" />
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView 
-          style={styles.scroll} 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.content}>
           <View style={styles.header}>
-            <MaterialCommunityIcons name="check-decagram" size={48} color="#0A7EA4" />
             <ThemedText type="title" style={styles.title}>
-              Ready to Use
+              Key Features
+            </ThemedText>
+            <ThemedText style={styles.subtitle}>
+              Discover what makes Pawket special
             </ThemedText>
           </View>
 
-          <View style={styles.features}>
-            <Feature
-              icon="cart-variant"
-              title="In-App Purchases"
-              description="Superwall integration for subscriptions and one-time purchases"
-            />
-            <Feature
-              icon="navigation"
-              title="Modern Navigation"
-              description="File-based routing with Expo Router for a great UX"
-            />
-            <Feature
-              icon="theme-light-dark"
-              title="Theming System"
-              description="Beautiful dark and light mode support out of the box"
-            />
-          </View>
-        </ScrollView>
+          <FlatList
+            data={features}
+            renderItem={renderFeatureItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.featuresList}
+          />
 
-        <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.button} onPress={handleNext}>
             <ThemedText type="defaultSemiBold" style={styles.buttonText}>
-              Almost There
+              Continue
             </ThemedText>
           </TouchableOpacity>
         </View>
@@ -60,97 +96,82 @@ export default function FeaturesScreen() {
   );
 }
 
-function Feature({ icon, title, description }: { 
-  icon: keyof typeof IconType.glyphMap;
-  title: string;
-  description: string;
-}) {
-  return (
-    <View style={styles.feature}>
-      <View style={styles.featureHeader}>
-        <View style={styles.iconContainer}>
-          <MaterialCommunityIcons name={icon} size={24} color="#0A7EA4" />
-        </View>
-        <View style={styles.featureText}>
-          <ThemedText type="defaultSemiBold" style={styles.featureTitle}>
-            {title}
-          </ThemedText>
-          <ThemedText style={styles.featureDescription}>{description}</ThemedText>
-        </View>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FAF9F6',
   },
   safeArea: {
     flex: 1,
   },
-  scroll: {
+  content: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 16,
-    gap: 24,
+    padding: 24,
+    justifyContent: 'space-between',
   },
   header: {
     alignItems: 'center',
-    gap: 16,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
+    fontWeight: 'bold',
     textAlign: 'center',
+    color: '#0A7EA4',
   },
-  features: {
-    gap: 16,
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 8,
   },
-  feature: {
-    backgroundColor: '#0A7EA410',
+  featuresList: {
+    paddingBottom: 16,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    backgroundColor: 'white',
     padding: 16,
     borderRadius: 12,
-  },
-  featureHeader: {
-    flexDirection: 'row',
-    gap: 16,
-    alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#0A7EA420',
-    alignItems: 'center',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#E6F7FF',
     justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
   },
-  featureText: {
+  featureTextContainer: {
     flex: 1,
-    gap: 4,
   },
   featureTitle: {
-    fontSize: 17,
+    fontSize: 18,
+    marginBottom: 4,
   },
   featureDescription: {
-    fontSize: 15,
-    opacity: 0.7,
+    fontSize: 14,
+    color: '#666',
     lineHeight: 20,
-  },
-  buttonContainer: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
   },
   button: {
     backgroundColor: '#0A7EA4',
-    padding: 20,
-    borderRadius: 16,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     alignItems: 'center',
+    marginTop: 16,
   },
   buttonText: {
     color: 'white',
     fontSize: 18,
   },
-}); 
+});
