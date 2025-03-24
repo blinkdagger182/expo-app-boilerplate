@@ -425,6 +425,7 @@ class SupabaseService {
       // Try to get from cache first
       const cachedPosts = await AsyncStorage.getItem(cacheKey);
       if (cachedPosts) {
+        console.log('Using cached posts for key:', cacheKey);
         return JSON.parse(cachedPosts);
       }
       
@@ -458,7 +459,19 @@ class SupabaseService {
         friendIds = [userId];
       }
       
-      // Fetch posts without the profiles join
+      console.log('Fetching posts for user IDs:', friendIds);
+      
+      // Fetch all posts without filtering by user_id first to debug
+      const { data: allPosts, error: allPostsError } = await client
+        .from('posts')
+        .select('*')
+        .eq('deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(100);
+        
+      console.log('All posts in database:', allPosts?.length || 0);
+      
+      // Fetch posts with user_id filter
       const { data, error, count } = await client
         .from('posts')
         .select('*', { count: 'exact' })
@@ -471,6 +484,8 @@ class SupabaseService {
         console.error('Error fetching posts:', error);
         return { posts: [] as Post[], count: 0 };
       }
+      
+      console.log('Filtered posts found:', data?.length || 0);
       
       // For each post, fetch the profile separately and generate signed URL
       const postsWithProfiles = await Promise.all(
@@ -1046,6 +1061,9 @@ class SupabaseService {
             console.log('Post change detected:', payload);
             // Call the callback with the payload
             callback(payload);
+            
+            // Clear the cache to ensure fresh data on next fetch
+            this.clearCache();
           }
         );
       

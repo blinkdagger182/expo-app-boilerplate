@@ -123,9 +123,15 @@ export const HomePage: React.FC<HomePageProps> = () => {
       const currentPage = reset ? 1 : page;
       const offset = (currentPage - 1) * POSTS_PER_PAGE;
       
+      // First clear the cache to ensure we get fresh data
+      await supabaseService.clearCache();
+      
       // Use the userId parameter for library view
       const userId = showLibrary ? user?.id : undefined;
+      console.log('Fetching posts with params:', { limit: POSTS_PER_PAGE, offset, userId });
+      
       const { posts: fetchedPosts, count } = await supabaseService.getPosts(POSTS_PER_PAGE, offset, userId);
+      console.log('Fetched posts:', fetchedPosts.length, 'Total count:', count);
       
       if (reset) {
         setPosts(fetchedPosts);
@@ -138,6 +144,13 @@ export const HomePage: React.FC<HomePageProps> = () => {
       
       if (!reset) {
         setPage(currentPage + 1);
+      }
+      
+      // If we've just uploaded a post, scroll to the top
+      if (reset && scrollViewRef.current) {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+        }, 500);
       }
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -244,47 +257,42 @@ export const HomePage: React.FC<HomePageProps> = () => {
     setIsCameraReady(true);
   };
 
+  // Handle post button press
+  const handlePost = () => {
+    if (capturedImage) {
+      uploadPost(capturedImage, caption);
+    }
+  };
+
   // Take a picture
   const takePicture = async () => {
     if (cameraRef.current && isCameraReady) {
       try {
         const photo = await cameraRef.current.takePictureAsync({
           quality: 0.8,
+          exif: false,
         });
-        setCapturedImage(photo.uri); // Set the captured image
         
-        // Show caption input dialog
-        Alert.prompt(
-          'Add Caption',
-          'Add a caption to your cat photo',
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-            {
-              text: 'Post',
-              onPress: (captionText) => uploadPost(photo.uri, captionText || null),
-            },
-          ],
-          'plain-text'
-        );
+        console.log('Photo captured:', photo.uri);
+        
+        // Ensure the URI is valid
+        if (!photo.uri || !photo.uri.startsWith('file://')) {
+          console.error('Invalid photo URI:', photo.uri);
+          Alert.alert('Error', 'Failed to capture a valid image');
+          return;
+        }
+        
+        setCapturedImage(photo.uri);
+        setCaption('');
       } catch (error) {
+        console.error('Error taking picture:', error);
         Alert.alert('Error', 'Failed to take picture');
-        console.error(error);
       }
     } else {
       Alert.alert('Camera not ready', 'Please wait for the camera to initialize');
     }
   };
-  const handlePost = () => {
-    if (capturedImage) {
-      uploadPost(capturedImage, caption);
-      setCapturedImage(null);
-      setCaption('');
-    }
-  };
-  
+
   // Upload post to Supabase
   const uploadPost = async (imageUri: string, captionText: string | null) => {
     try {
@@ -303,12 +311,21 @@ export const HomePage: React.FC<HomePageProps> = () => {
       // Upload post
       await supabaseService.createPost(imageUri, captionText);
       
-      // Refresh posts
-      fetchPosts();
+      // Clear all post caches to ensure fresh data
+      await supabaseService.clearCache();
       
-      // Scroll to first post
+      // Reset the camera view
+      setCapturedImage(null);
+      setCaption('');
+      
+      // Refresh posts with reset=true to start from page 1
+      await fetchPosts(true);
+      
+      // Scroll to first post to show the newly added post
       if (scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({ y: screenHeight, animated: true });
+        setTimeout(() => {
+          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+        }, 300);
       }
       
       Alert.alert('Success', 'Your cat photo has been posted!');
@@ -399,7 +416,25 @@ export const HomePage: React.FC<HomePageProps> = () => {
           // Overlay captured image with caption input
           <View style={styles.contentContainer}>
             <View style={styles.cameraContainer}>
-              <Image source={{ uri: capturedImage }} style={styles.capturedImage} />
+              {/* Debug text to verify image URI */}
+              <Text style={{position: 'absolute', top: 50, left: 10, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.7)', padding: 5, fontSize: 10}}>
+                Image loaded: {capturedImage ? 'Yes' : 'No'}
+              </Text>
+              
+              {/* Flash button on left */}
+              <TouchableOpacity style={styles.flashButton}>
+                <Ionicons name="flash-outline" size={24} color="#333333" />
+              </TouchableOpacity>
+              
+              {/* The captured image */}
+              <Image 
+                source={{ uri: capturedImage }} 
+                style={styles.capturedImage} 
+                resizeMode="cover"
+                onLoad={() => console.log('Image loaded successfully')}
+                onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
+              />
+              
               <TextInput
                 style={styles.captionInput}
                 placeholder="Add a caption..."
@@ -457,6 +492,58 @@ export const HomePage: React.FC<HomePageProps> = () => {
         </View>
       </View>
     );
+  };
+
+  // Render posts in feed view
+  const renderPosts = () => {
+    if (posts.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="paw-outline" size={64} color="#CCCCCC" />
+          <Text style={styles.emptyText}>No posts yet</Text>
+          <Text style={{color: '#666666', textAlign: 'center'}}>
+            Posts will appear here when you or your friends add them
+          </Text>
+          <TouchableOpacity 
+            style={{marginTop: 20, backgroundColor: '#4CAF50', padding: 10, borderRadius: 8}}
+            onPress={() => {
+              // Force refresh posts
+              supabaseService.clearCache();
+              fetchPosts(true);
+            }}
+          >
+            <Text style={{color: 'white', fontWeight: 'bold'}}>Refresh Posts</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    return posts.map((post, index) => (
+      <View key={`post-${post.id}-${index}`} style={[styles.pageContainer, { height: pageHeight }]}>
+        <View style={styles.contentPositioner}>
+          <View style={styles.postWrapper}>
+            <View style={styles.postAuthorSection}>
+              <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
+              <Text style={styles.authorNameText}>{post.profiles?.name || 'User'}</Text>
+              <Text style={styles.postTimeText}>
+                {new Date(post.created_at).toLocaleDateString()}
+              </Text>
+            </View>
+            <View style={styles.postContainer}>
+              {/* Post image */}
+              <Image
+                source={{ uri: post.image_url }}
+                style={styles.postImage}
+                resizeMode="cover"
+              />
+              <View style={styles.postOverlay}>
+                <Text style={styles.postCaption}>{post.caption}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    ));
   };
 
   // Main render function
@@ -561,30 +648,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
           </View>
 
           {/* Posts */}
-          {posts.map((post, index) => (
-            <View key={`post-${post.id}-${index}`} style={[styles.pageContainer, { height: pageHeight }]}>
-              <View style={styles.contentPositioner}>
-                <View style={styles.postWrapper}>
-                  <View style={styles.postAuthorSection}>
-                    <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
-                    <Text style={styles.authorNameText}>{post.profiles?.name || 'Irfan'}</Text>
-                    <Text style={styles.postTimeText}>4h</Text>
-                  </View>
-                  <View style={styles.postContainer}>
-                    {/* Post image */}
-                    <Image
-                      source={{ uri: post.image_url }}
-                      style={styles.postImage}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.postOverlay}>
-                      <Text style={styles.postCaption}>{post.caption}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </View>
-          ))}
+          {renderPosts()}
           
           {hasMore && (
             <View style={styles.loadingContainer}>
@@ -901,6 +965,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     alignSelf: 'center',
+    backgroundColor: '#000',
   },
   camera: {
     flex: 1,
@@ -1079,6 +1144,33 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666666',
   },
+  endOfFeedContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: screenHeight,
+  },
+  endOfFeedText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#666666',
+  },
+  endOfLibraryContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  capturedImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#000',
+    borderRadius: 20,
+  },
   captionInput: {
     position: 'absolute',
     bottom: 60,
@@ -1116,10 +1208,6 @@ const styles = StyleSheet.create({
   overlayContainer: {
     flex: 1,
     position: 'relative',
-  },
-  capturedImage: {
-    width: '100%',
-    height: '100%',
   },
   authorNameText: {
     fontSize: 14,
@@ -1176,20 +1264,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
-  },
-  endOfFeedContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: screenHeight,
-  },
-  endOfFeedText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#666666',
-  },
-  endOfLibraryContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
   },
 });
