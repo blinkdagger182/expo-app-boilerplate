@@ -17,7 +17,6 @@ import {
   Dimensions,
   Animated
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { useOnboarding } from '@/contexts/OnboardingContext';
@@ -67,7 +66,7 @@ export default function OnboardScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar style="light" />
       
       {/* Skip button */}
@@ -126,7 +125,7 @@ export default function OnboardScreen() {
           {currentStep === onboardingSteps.length - 1 ? 'Get Started' : 'Next'}
         </Text>
       </TouchableOpacity>
-    </SafeAreaView>
+    </View>
   );
 }
 

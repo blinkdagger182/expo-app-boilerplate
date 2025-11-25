@@ -10,7 +10,7 @@
  */
 
 import React from 'react';
-import { SafeAreaView, StyleSheet, StatusBar } from 'react-native';
+import { View, StyleSheet, StatusBar } from 'react-native';
 import { Pawket } from '@/components/pawket/Pawket';
 
 /**
@@ -19,10 +19,10 @@ import { Pawket } from '@/components/pawket/Pawket';
  */
 export default function PawketScreen() {
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#111827" />
       <Pawket />
-    </SafeAreaView>
+    </View>
   );
 }
 

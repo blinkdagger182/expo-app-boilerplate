@@ -25,9 +25,10 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
-  AppState
+  AppState,
+  StatusBar
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { Input } from './Input';
@@ -86,6 +87,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
   const [messageText, setMessageText] = useState('');
   const [currentPostIndex, setCurrentPostIndex] = useState(0);
   const [visiblePostIndex, setVisiblePostIndex] = useState(-1); // -1 means camera view is visible
+  const [statusBarStyle, setStatusBarStyle] = useState<'light-content' | 'dark-content'>('dark-content');
 
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -231,6 +233,9 @@ export const HomePage: React.FC<HomePageProps> = () => {
     
     if (index !== currentPageIndex) {
       setCurrentPageIndex(index);
+      // Update status bar style based on page
+      // Camera view (index 0) has dark background, posts have light background
+      setStatusBarStyle(index === 0 ? 'light-content' : 'dark-content');
     }
   };
 
@@ -548,10 +553,16 @@ export const HomePage: React.FC<HomePageProps> = () => {
 
   // Main render function
   return (
-    <SafeAreaView style={{ flex: 1 }}>
     <View style={styles.container}>
+      {/* Status Bar */}
+      <StatusBar 
+        barStyle={statusBarStyle}
+        backgroundColor="transparent"
+        translucent={true}
+      />
+      
       {/* Fixed header that stays at the top with safe area padding */}
-      <View style={[styles.fixedHeaderSafeArea, { paddingTop: 0 }]}>
+      <View style={[styles.fixedHeaderSafeArea, { paddingTop: insets.top }]}>
         <View style={styles.fixedHeader}>
           <View style={styles.postHeaderLeft}>
             <Avatar size={32} />
@@ -665,7 +676,7 @@ export const HomePage: React.FC<HomePageProps> = () => {
       )}
       
       {/* Fixed footer with message input and navigation - only show message input when not on camera view */}
-      <View style={[styles.fixedFooterSafeArea, { paddingBottom: 0 }]}>
+      <View style={[styles.fixedFooterSafeArea, { paddingBottom: insets.bottom }]}>
         {currentPageIndex !== 0 && (
           <View style={styles.floatingMessageInputWrapper}>
             <TextInput
@@ -746,7 +757,6 @@ export const HomePage: React.FC<HomePageProps> = () => {
         </View>
       )}
     </View>
-    </SafeAreaView>
   );
 };
 
