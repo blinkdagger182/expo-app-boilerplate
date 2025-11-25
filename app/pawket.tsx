@@ -11,17 +11,17 @@
 
 import React from 'react';
 import { View, StyleSheet, StatusBar } from 'react-native';
-import { Pawket } from '@/components/pawket/Pawket';
+import { MainNavigator } from '@/src/navigation/MainNavigator';
 
 /**
  * PawketScreen component that serves as the main entry point for the Pawket app
  * This component wraps the Pawket component with necessary providers and safety features
  */
-export default function PawketScreen() {
+export default function MainScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#111827" />
-      <Pawket />
+      <MainNavigator />
     </View>
   );
 }

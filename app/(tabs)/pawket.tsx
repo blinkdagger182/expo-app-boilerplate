@@ -10,17 +10,17 @@
 
 import React from 'react';
 import { SafeAreaView, StyleSheet, StatusBar } from 'react-native';
-import { Pawket } from '@/components/pawket/Pawket';
+import { MainNavigator } from '@/src/navigation/MainNavigator';
 
 /**
  * PawketTabScreen component that serves as the entry point for the Pawket app
  * within the tab navigation system
  */
-export default function PawketTabScreen() {
+export default function MainTabScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#111827" />
-      <Pawket />
+      <MainNavigator />
     </SafeAreaView>
   );
 }

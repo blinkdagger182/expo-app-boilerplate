@@ -1,5 +1,5 @@
-import SettingsPage from '@/components/pawket/SettingsPage';
+import { SettingsScreen } from '@/src/screens/SettingsScreen';
 
 export default function Settings() {
-  return <SettingsPage />;
+  return <SettingsScreen />;
 }

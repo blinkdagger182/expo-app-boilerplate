@@ -4,10 +4,7 @@
     "strict": true,
     "paths": {
       "@/*": ["./*"],
-      "@components/*": ["./components/*"],
-      "@utils/*": ["./utils/*"],
-      "@constants/*": ["./constants/*"],
-      "@types/*": ["./types/*"]
+      "@/src/*": ["./src/*"]
     },
     "jsx": "react-jsx",
     "baseUrl": ".",

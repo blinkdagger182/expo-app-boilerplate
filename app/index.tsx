@@ -14,7 +14,7 @@ import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Pawket } from '@/components/pawket/Pawket';
+import { MainNavigator } from '@/src/navigation/MainNavigator';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -44,7 +44,7 @@ export default function MainScreen() {
         return () => clearTimeout(timer);
       } else {
         // Navigate to main app
-        router.replace('/pawket');
+        router.replace('/main');
       }
     } else if (!authLoading) {
       // User is not authenticated, show login screen
@@ -226,11 +226,11 @@ export default function MainScreen() {
     );
   }
 
-  // If authenticated and onboarded, render the Pawket component
+  // If authenticated and onboarded, navigate to main app
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      <Pawket />
+      <MainNavigator />
     </View>
   );
 }
