@@ -272,12 +272,18 @@ class SupabaseService {
   }
 
   async signInWithEmail(email: string, password: string) {
+    console.log('Attempting to sign in with email:', email);
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     
-    if (error) throw error;
+    if (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    }
+    
+    console.log('Sign in successful:', data.user?.id);
     return data;
   }
 
