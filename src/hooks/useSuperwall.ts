@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { SubscriptionStatus } from '@superwall/react-native-superwall';
-import { superwallService } from '@/services/superwall';
+import { superwallService } from '../services/superwall';
 
 export function useSuperwall() {
   const [isSubscribed, setIsSubscribed] = useState(false);

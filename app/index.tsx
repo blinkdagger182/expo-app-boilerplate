@@ -15,8 +15,8 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { MainNavigator } from '@/src/navigation/MainNavigator';
-import { useOnboarding } from '@/contexts/OnboardingContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useOnboarding } from '@/src/contexts/OnboardingContext';
+import { useAuth } from '@/src/contexts/AuthContext';
 
 /**
  * MainScreen component that serves as the primary entry point for the app

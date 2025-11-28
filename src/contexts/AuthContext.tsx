@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { supabase, supabaseService, Profile } from '@/services/supabase';
+import { supabase, supabaseService, Profile } from '../services/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { router } from 'expo-router';
 
@@ -64,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Handle auth events
         if (event === 'SIGNED_IN') {
-          router.replace('/pawket');
+          router.replace('/main');
         } else if (event === 'SIGNED_OUT') {
           router.replace('/');
         }

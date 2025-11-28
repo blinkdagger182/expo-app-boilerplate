@@ -1,10 +1,10 @@
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/src/components/common/ThemedText';
+import { ThemedView } from '@/src/components/common/ThemedView';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { useSuperwall } from '@/hooks/useSuperwall';
-import { useOnboarding } from '@/contexts/OnboardingContext';
-import { SUPERWALL_TRIGGERS } from '@/config/superwall';
+import { useSuperwall } from '@/src/hooks/useSuperwall';
+import { useOnboarding } from '@/src/contexts/OnboardingContext';
+import { SUPERWALL_TRIGGERS } from '@/src/config/superwall';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';

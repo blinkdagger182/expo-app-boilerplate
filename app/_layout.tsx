@@ -9,10 +9,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { superwallService } from '@/services/superwall';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { OnboardingProvider } from '@/contexts/OnboardingContext';
-import { AuthProvider } from '@/contexts/AuthContext';
+import { superwallService } from '@/src/services/superwall';
+import { useColorScheme } from '@/src/hooks/useColorScheme';
+import { OnboardingProvider } from '@/src/contexts/OnboardingContext';
+import { AuthProvider } from '@/src/contexts/AuthContext';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();

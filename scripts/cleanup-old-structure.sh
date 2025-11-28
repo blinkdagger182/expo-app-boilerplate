@@ -90,7 +90,7 @@ read -p "Remove app/(tabs)/ directory? (yes/no): " remove_tabs
 if [ "$remove_tabs" = "yes" ]; then
     if [ -d "app/(tabs)" ]; then
         echo "🗑️  Removing app/(tabs)/"
-        rm -rf app/(tabs)/
+        rm -rf "app/(tabs)/"
     fi
 fi
 

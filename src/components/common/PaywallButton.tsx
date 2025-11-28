@@ -1,8 +1,8 @@
 import { StyleSheet } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { ThemedText } from './ThemedText';
-import { useSuperwall } from '@/hooks/useSuperwall';
-import { SUPERWALL_TRIGGERS } from '@/config/superwall';
+import { useSuperwall } from '../../hooks/useSuperwall';
+import { SUPERWALL_TRIGGERS } from '../../config/superwall';
 
 export function PaywallButton() {
   const { showPaywall } = useSuperwall();
