@@ -1,47 +1,122 @@
-# Welcome to jack's Expo React Native free boilerplate 👋
+# documentAI - React Native App
 
-This is an [Expo](https://expo.dev) template project with Superwall libraries ready to use and a simple onboarding sequence for first time users.
+AI-powered document processing app connected to your Cloudflare Worker backend.
 
-This free boilerplate is sponsored by [post bridge](https://post-bridge.com) - a super simple and affordable social media scheduling tool for small teams and founders.
+## 🚀 Quick Start
 
-## Get started
+```bash
+# 1. Install dependencies
+npm install
 
-1. Clone this repository 
+# 2. Install iOS pods
+cd ios && pod install && cd ..
 
-2. Install dependencies
+# 3. Start the app
+npm start
 
-   ```bash
-   npm install
-   ```
-Or 
+# 4. Press 'i' to open iOS simulator
+```
 
-  ```bash
-   npx expo install
-   ```
+## 🔗 Backend
 
-3. Start the app
+**Connected to:** `https://document-ai-backend.azhanrizhan.workers.dev`
 
-   ```bash
-    npx expo start
-   ```
--- you will need to make a development build or run in development mode as Superwall does not work in Expo GO
+To use local backend, edit `src/config/api.ts`:
+```typescript
+endpoint: 'http://localhost:8787'
+```
 
-In the output, you'll find options to open the app in a
+## 📱 How It Works
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+1. User uploads PDF or image
+2. Backend processes with OCR (Google Cloud Vision)
+3. AI extracts fields and generates UI schema
+4. App renders dynamic form components
+5. User fills form and submits
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## 🎯 Features
 
-## Need help?
+- ✅ Upload PDF/images (max 50MB)
+- ✅ Real-time progress tracking
+- ✅ OCR text extraction
+- ✅ Dynamic UI rendering (titles, paragraphs, tables, inputs, buttons)
+- ✅ Form handling with state management
+- ✅ Beautiful gradient UI
 
-Join [the discord](https://discord.gg/XuT2V5GUkA) for app founders and @jackfriks for help.
+## 📂 Key Files
 
-## Learn more
+```
+src/
+├── config/api.ts              # Backend endpoint configuration
+├── api/
+│   ├── upload.ts             # Upload + process in single request
+│   └── processDocument.ts    # Schema conversion
+├── components/
+│   ├── DynamicRenderer.tsx   # Renders backend UI schema
+│   └── dynamic/              # UI components (Title, Table, Input, etc)
+└── screens/
+    └── HomeScreen.tsx        # Main upload interface
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+## 🧪 Test Backend
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+curl https://document-ai-backend.azhanrizhan.workers.dev/health
+```
+
+## 🚀 Deploy to TestFlight
+
+```bash
+# Install EAS CLI
+npm install -g eas-cli
+
+# Login
+eas login
+
+# Update bundle ID in app.json
+# "bundleIdentifier": "com.yourcompany.documentai"
+
+# Build
+eas build --platform ios --profile production
+
+# Submit
+eas submit --platform ios
+```
+
+## 🐛 Troubleshooting
+
+**Native module error?**
+```bash
+cd ios && pod install && cd ..
+npm start
+```
+
+**Metro bundler issues?**
+```bash
+npm start -- --clear
+```
+
+**Backend not responding?**
+```bash
+curl https://document-ai-backend.azhanrizhan.workers.dev/health
+```
+
+## 📊 Tech Stack
+
+- React Native 0.76.7
+- Expo 52.0.35
+- TypeScript 5.3.3
+- Expo Router 4.0.17
+- expo-document-picker
+- expo-image-picker
+
+## 🎉 Status
+
+✅ Backend connected  
+✅ OCR processing ready  
+✅ Dynamic UI working  
+✅ Ready to deploy
+
+---
+
+**Start testing:** `npm start` → Press `i` → Upload a document! 🚀

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "expo-app-boilerplate",
-    "slug": "expo-app-boilerplate",
+    "name": "documentAI",
+    "slug": "documentai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

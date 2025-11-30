@@ -1,378 +1,72 @@
-/**
- * HomePage component for the Pawket app
- * 
- * Learning curriculum:
- * - Implementing vertical swipe navigation in React Native
- * - Working with gesture handling in React Native
- * - Creating a photo feed UI
- * - Managing component state with useState
- * - Implementing UI transitions and animations
- */
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   Image, 
-  FlatList,
   TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  StatusBar,
   ScrollView,
   Dimensions,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
-  Alert,
-  TextInput,
-  ActivityIndicator,
-  Platform,
-  AppState,
-  StatusBar
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Avatar } from '../components/common/Avatar';
-import { Button } from '../components/common/Button';
-import { Input } from '../components/common/Input';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useSuperwall } from '../hooks/useSuperwall';
-import { SUPERWALL_TRIGGERS } from '../config/superwall';
 import { useAuth } from '../contexts/AuthContext';
-import { supabaseService, Post as PostType } from '../services/supabase';
-import { RealtimeChannel } from '@supabase/supabase-js';
-import { fileUploadService } from '../services/fileUpload';
+import { uploadAndProcessDocument, UploadProgress } from '../api/upload';
+import { getDocumentResult } from '../api/processDocument';
+import { DynamicRenderer, UISchema } from '../components/DynamicRenderer';
+import { API_CONFIG } from '../config/api';
 
-// Create a fallback camera component
-const createCameraComponents = () => {
-  try {
-    // Try to import Camera dynamically
-    const ExpoCamera = require('expo-camera');
-    return {
-      CameraView: ExpoCamera.CameraView,
-      useCameraPermissions: ExpoCamera.useCameraPermissions
-    };
-  } catch (error) {
-    console.log('ExpoCamera not available, using fallback components');
-    // Fallback components when Camera is not available
-    return {
-      CameraView: (props: any) => (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111827' }}>
-          <Text style={{ color: 'white', textAlign: 'center', padding: 20 }}>
-            Camera not available in this environment.{'\n'}
-            Try using the library instead.
-          </Text>
-          {props.children}
-        </View>
-      ),
-      useCameraPermissions: () => [{ granted: false }, () => Promise.resolve(false)]
-    };
-  }
-};
+const { height: screenHeight } = Dimensions.get('window');
 
-const { CameraView, useCameraPermissions } = createCameraComponents();
-
-const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
-
-interface HomePageProps {
-  // Add any props needed
-}
+interface HomePageProps {}
 
 export const HomeScreen: React.FC<HomePageProps> = () => {
-  const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [showLibrary, setShowLibrary] = useState(false);
-  const [showPaywall, setShowPaywall] = useState(false);
-  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
-  const [isCameraReady, setIsCameraReady] = useState(false);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [caption, setCaption] = useState('');
-  const [messageText, setMessageText] = useState('');
-  const [currentPostIndex, setCurrentPostIndex] = useState(0);
-  const [visiblePostIndex, setVisiblePostIndex] = useState(-1); // -1 means camera view is visible
-  const [statusBarStyle, setStatusBarStyle] = useState<'light-content' | 'dark-content'>('dark-content');
-
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [processing, setProcessing] = useState(false);
+  const [schema, setSchema] = useState<UISchema[]>([]);
+  const [formData, setFormData] = useState<Record<number, string>>({});
+  const [showResults, setShowResults] = useState(false);
   
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [totalPosts, setTotalPosts] = useState(0);
-  const POSTS_PER_PAGE = 10;
-  
-  const cameraRef = useRef<any>(null);
-  const { showPaywall: showSuperwallPaywall } = useSuperwall();
-  const [permission, requestPermission] = useCameraPermissions();
-  const scrollViewRef = useRef<ScrollView>(null);
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  
-  // Calculate dynamic heights based on insets
-  const headerHeight = 60; // Height of the header
-  const footerHeight = 70; // Height of the footer
-  const pageHeight = screenHeight; // Full screen height for each page
-  const availableHeight = screenHeight - (insets.top + insets.bottom + headerHeight + footerHeight);
-  
 
-
-  // Fetch posts from Supabase
-  const fetchPosts = async (reset = false) => {
+  const handlePickDocument = async () => {
     try {
-      if (reset) {
-        setPage(1);
-        setHasMore(true);
-      }
-      
-      setLoading(true);
-      const currentPage = reset ? 1 : page;
-      const offset = (currentPage - 1) * POSTS_PER_PAGE;
-      
-      // First clear the cache to ensure we get fresh data
-      await supabaseService.clearCache();
-      
-      // Use the userId parameter for library view
-      const userId = showLibrary ? user?.id : undefined;
-      console.log('Fetching posts with params:', { limit: POSTS_PER_PAGE, offset, userId });
-      
-      const { posts: fetchedPosts, count } = await supabaseService.getPosts(POSTS_PER_PAGE, offset, userId);
-      console.log('Fetched posts:', fetchedPosts.length, 'Total count:', count);
-      
-      if (reset) {
-        setPosts(fetchedPosts);
-      } else {
-        setPosts(prev => [...prev, ...fetchedPosts]);
-      }
-      
-      setTotalPosts(count || 0);
-      setHasMore(fetchedPosts.length === POSTS_PER_PAGE && (offset + fetchedPosts.length) < (count || 0));
-      
-      if (!reset) {
-        setPage(currentPage + 1);
-      }
-      
-      // If we've just uploaded a post, scroll to the top
-      if (reset && scrollViewRef.current) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-        }, 500);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedFile(result.assets[0]);
+        setShowResults(false);
+        setSchema([]);
       }
     } catch (error) {
-      console.error('Error fetching posts:', error);
-      Alert.alert('Error', 'Failed to load posts');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Toggle between feed and library view
-  const toggleLibrary = () => {
-    const newShowLibrary = !showLibrary;
-    setShowLibrary(newShowLibrary);
-    // Fetch posts with the new view setting
-    fetchPosts(true);
-  };
-  
-  // Fetch posts and handle app state changes
-  useEffect(() => {
-    // Initial fetch
-    fetchPosts(true);
-    
-    // Set up real-time subscription for new posts
-    let postSubscription: any = null;
-    let friendSubscription: any = null;
-    
-    const setupSubscriptions = async () => {
-      try {
-        // Subscribe to friend requests
-        friendSubscription = await supabaseService.subscribeToFriendRequests((payload) => {
-          console.log('Friend request received:', payload);
-        });
-        
-        // Subscribe to post changes (new posts, updates, deletes)
-        postSubscription = await supabaseService.subscribeToPosts((payload) => {
-          console.log('Post change detected:', payload);
-          // Refresh posts when a post is added, updated, or deleted
-          fetchPosts(true);
-        });
-      } catch (error) {
-        console.error('Error setting up subscriptions:', error);
-      }
-    };
-    
-    setupSubscriptions();
-    
-    // Set up AppState listener to refresh posts when app comes to foreground
-    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        console.log('App has come to the foreground - refreshing posts');
-        fetchPosts(true);
-      }
-    });
-    
-    return () => {
-      // Clean up subscriptions
-      if (friendSubscription) {
-        friendSubscription.unsubscribe();
-      }
-      if (postSubscription) {
-        postSubscription.unsubscribe();
-      }
-      appStateSubscription.remove();
-    };
-  }, []);
-  
-  // Load more posts when reaching the end of the list
-  const loadMorePosts = () => {
-    if (!loading && hasMore) {
-      fetchPosts();
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to pick document');
     }
   };
 
-  // Handle scroll events to update the current page index
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    const index = Math.round(offsetY / screenHeight);
-    
-    if (index !== currentPageIndex) {
-      setCurrentPageIndex(index);
-      // Update status bar style based on page
-      // Camera view (index 0) has dark background, posts have light background
-      setStatusBarStyle(index === 0 ? 'light-content' : 'dark-content');
-    }
-  };
-
-  // Render a library item
-  const renderLibraryItem = ({ item }: { item: PostType }) => {
-    return (
-      <TouchableOpacity style={styles.libraryItem}>
-        <Image
-          source={{ uri: item.image_url }}
-          style={styles.libraryImage}
-          resizeMode="cover"
-        />
-      </TouchableOpacity>
-    );
-  };
-
-  // Toggle between front and back camera
-  const toggleCameraFacing = () => {
-    setCameraFacing(current => current === 'front' ? 'back' : 'front');
-  };
-
-  // Handle camera ready state
-  const onCameraReady = () => {
-    setIsCameraReady(true);
-  };
-
-  // Handle post button press
-  const handlePost = () => {
-    if (capturedImage) {
-      uploadPost(capturedImage, caption);
-    }
-  };
-
-  // Take a picture
-  const takePicture = async () => {
-    if (cameraRef.current && isCameraReady) {
-      try {
-        const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.8,
-          exif: false,
-        });
-        
-        console.log('Photo captured:', photo.uri);
-        
-        // Ensure the URI is valid
-        if (!photo.uri || !photo.uri.startsWith('file://')) {
-          console.error('Invalid photo URI:', photo.uri);
-          Alert.alert('Error', 'Failed to capture a valid image');
-          return;
-        }
-        
-        setCapturedImage(photo.uri);
-        setCaption('');
-      } catch (error) {
-        console.error('Error taking picture:', error);
-        Alert.alert('Error', 'Failed to take picture');
-      }
-    } else {
-      Alert.alert('Camera not ready', 'Please wait for the camera to initialize');
-    }
-  };
-
-  // Upload post to Supabase
-  const uploadPost = async (imageUri: string, captionText: string | null) => {
-    try {
-      setUploading(true);
-      
-      // Check if user is premium for unlimited uploads
-      const isPremium = await supabaseService.checkPremiumStatus();
-      
-      // If not premium and has more than 5 posts, show paywall
-      if (!isPremium && posts.filter(p => p.user_id === user?.id).length >= 50) {
-        showSuperwallPaywall(SUPERWALL_TRIGGERS.FEATURE_UNLOCK);
-        setUploading(false);
-        return;
-      }
-      
-      // Upload post
-      await supabaseService.createPost(imageUri, captionText);
-      
-      // Clear all post caches to ensure fresh data
-      await supabaseService.clearCache();
-      
-      // Reset the camera view
-      setCapturedImage(null);
-      setCaption('');
-      
-      // Refresh posts with reset=true to start from page 1
-      await fetchPosts(true);
-      
-      // Scroll to first post to show the newly added post
-      if (scrollViewRef.current) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-        }, 300);
-      }
-      
-      Alert.alert('Success', 'Your cat photo has been posted!');
-    } catch (error) {
-      console.error('Error uploading post:', error);
-      Alert.alert('Error', 'Failed to upload post');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  // Pick image from library
-  const pickImage = async () => {
+  const handlePickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
+        allowsEditing: false,
+        quality: 1,
       });
-      
-      if (!result.canceled) {
-        // Show caption input dialog
-        Alert.prompt(
-          'Add Caption',
-          'Add a caption to your cat photo',
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-            {
-              text: 'Post',
-              onPress: (captionText) => uploadPost(result.assets[0].uri, captionText || null),
-            },
-          ],
-          'plain-text'
-        );
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedFile(result.assets[0]);
+        setShowResults(false);
+        setSchema([]);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -380,362 +74,303 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
     }
   };
 
-  // Show upload paywall
-  const showUploadPaywall = () => {
-    setShowPaywall(true);
-  };
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      Alert.alert('No File', 'Please select a file first');
+      return;
+    }
 
-  // Navigate to messages
-  const navigateToMessages = () => {
-    // Navigate to Messages tab (index 2)
-    // router.push('/pawket');
-  };
+    setUploading(true);
+    setProgress(0);
 
-  // Function to scroll to a specific page
-  const scrollToPage = (index: number) => {
-    scrollViewRef.current?.scrollTo({
-      y: index * screenHeight,
-      animated: true,
-    });
-  };
-
-  // Handle file upload
-  const handleFileUpload = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: false,
-        quality: 1,
-      });
-      
-      if (!result.canceled && result.assets[0]) {
-        setUploading(true);
-        const file = result.assets[0];
-        
-        // Upload file using the service
-        const uploadResult = await fileUploadService.uploadFile(
-          file.uri,
-          file.fileName || `file_${Date.now()}.${file.uri.split('.').pop()}`,
-          {
-            userId: user?.id,
-            uploadedAt: new Date().toISOString(),
-          }
-        );
-        
-        if (uploadResult.success) {
-          Alert.alert('Success', 'File uploaded successfully!');
-          console.log('File URL:', uploadResult.fileUrl);
-        } else {
-          Alert.alert('Error', uploadResult.message || 'Failed to upload file');
-        }
-        
-        setUploading(false);
+    // Upload and process in single request
+    const result = await uploadAndProcessDocument(
+      selectedFile.uri,
+      selectedFile.name,
+      selectedFile.mimeType || selectedFile.type,
+      API_CONFIG.endpoint,
+      (progressData: UploadProgress) => {
+        setProgress(progressData.percentage);
       }
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      Alert.alert('Error', 'Failed to upload file');
-      setUploading(false);
+    );
+
+    setUploading(false);
+
+    if (result.success && result.data) {
+      // Convert backend UI schema to our format
+      setProcessing(true);
+      
+      try {
+        // Convert the UI components
+        const convertedSchema = convertBackendUIToSchema(result.data.ui);
+        
+        setSchema(convertedSchema);
+        setShowResults(true);
+        
+        console.log('Document processed:', {
+          documentId: result.data.documentId,
+          pageCount: result.data.metadata?.pageCount,
+          ocrBlocks: result.data.metadata?.ocrBlocks,
+        });
+      } catch (error) {
+        console.error('Schema conversion error:', error);
+        Alert.alert('Error', 'Failed to process document schema');
+      } finally {
+        setProcessing(false);
+      }
+    } else {
+      Alert.alert('Error', result.message || 'Upload and processing failed');
     }
   };
 
-  // Render upload view
-  const renderUploadView = () => {
-    if (currentPageIndex !== 0) return null;
-    
+  // Convert backend UI schema to our component format
+  const convertBackendUIToSchema = (backendUI: any): UISchema[] => {
+    if (!backendUI || !backendUI.components) {
+      return [];
+    }
+
+    const schema: UISchema[] = [];
+
+    function processComponent(component: any): UISchema | UISchema[] | null {
+      switch (component.type) {
+        case 'section':
+          const sectionComponents: UISchema[] = [];
+          if (component.title) {
+            sectionComponents.push({
+              type: 'title',
+              text: component.title,
+            });
+          }
+          if (component.components) {
+            component.components.forEach((child: any) => {
+              const processed = processComponent(child);
+              if (Array.isArray(processed)) {
+                sectionComponents.push(...processed);
+              } else if (processed) {
+                sectionComponents.push(processed);
+              }
+            });
+          }
+          return sectionComponents;
+
+        case 'input':
+        case 'number':
+        case 'email':
+        case 'date':
+        case 'select':
+        case 'checkbox':
+          return {
+            type: 'input',
+            label: component.label || '',
+            value: component.value || component.placeholder || '',
+          };
+
+        case 'table':
+          return {
+            type: 'table',
+            columns: component.columns || [],
+            rows: component.rows || [],
+          };
+
+        case 'text':
+          return {
+            type: 'paragraph',
+            text: component.content || '',
+          };
+
+        case 'button':
+          return {
+            type: 'button',
+            label: component.label || 'Submit',
+            action: component.action || 'submit',
+          };
+
+        default:
+          return null;
+      }
+    }
+
+    backendUI.components.forEach((component: any) => {
+      const processed = processComponent(component);
+      if (Array.isArray(processed)) {
+        schema.push(...processed);
+      } else if (processed) {
+        schema.push(processed);
+      }
+    });
+
+    return schema;
+  };
+
+  const handleInputChange = (index: number, value: string) => {
+    setFormData((prev) => ({ ...prev, [index]: value }));
+  };
+
+  const handleButtonPress = (action: string) => {
+    console.log('Button pressed:', action, formData);
+    Alert.alert('Success', `Form submitted successfully!`, [
+      { text: 'Upload Another', onPress: () => {
+        setSelectedFile(null);
+        setShowResults(false);
+        setSchema([]);
+        setFormData({});
+      }},
+    ]);
+  };
+
+  if (showResults) {
     return (
-      <View style={styles.uploadViewContainer}>
-        <View style={styles.uploadBox}>
-          <Ionicons name="cloud-upload-outline" size={64} color="#8B5CF6" />
-          <Text style={styles.uploadTitle}>Upload Your File</Text>
-          <Text style={styles.uploadSubtitle}>PDF, Images, or any document</Text>
-          
-          <TouchableOpacity 
-            style={styles.uploadButton}
-            onPress={handleFileUpload}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Ionicons name="document-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.uploadButtonText}>Choose File</Text>
-              </>
-            )}
+      <View style={styles.container}>
+        <Image
+          source={require('../../assets/images/gradient-background.gif')}
+          style={styles.background}
+          resizeMode="cover"
+        />
+        
+        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+        
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <TouchableOpacity onPress={() => setShowResults(false)} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>Document Results</Text>
+          <View style={{ width: 24 }} />
         </View>
+
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.resultsContent}>
+          <DynamicRenderer
+            schema={schema}
+            onInputChange={handleInputChange}
+            onButtonPress={handleButtonPress}
+          />
+        </ScrollView>
       </View>
     );
-  };
+  }
 
-  // Render posts in feed view
-  const renderPosts = () => {
-    if (posts.length === 0) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="paw-outline" size={64} color="#CCCCCC" />
-          <Text style={styles.emptyText}>No posts yet</Text>
-          <Text style={{color: '#666666', textAlign: 'center'}}>
-            Posts will appear here when you or your friends add them
-          </Text>
-          <TouchableOpacity 
-            style={{marginTop: 20, backgroundColor: '#4CAF50', padding: 10, borderRadius: 8}}
-            onPress={() => {
-              // Force refresh posts
-              supabaseService.clearCache();
-              fetchPosts(true);
-            }}
-          >
-            <Text style={{color: 'white', fontWeight: 'bold'}}>Refresh Posts</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    
-    return posts.map((post, index) => (
-      <View key={`post-${post.id}-${index}`} style={[styles.pageContainer, { height: pageHeight }]}>
-        <View style={styles.contentPositioner}>
-          <View style={styles.postWrapper}>
-            <View style={styles.postAuthorSection}>
-              <Avatar size={24} source={post.profiles?.avatar_url ? { uri: post.profiles.avatar_url } : undefined} />
-              <Text style={styles.authorNameText}>{post.profiles?.name || 'User'}</Text>
-              <Text style={styles.postTimeText}>
-                {new Date(post.created_at).toLocaleDateString()}
-              </Text>
-            </View>
-            <View style={styles.postContainer}>
-              {/* Post image */}
-              <Image
-                source={{ uri: post.image_url }}
-                style={styles.postImage}
-                resizeMode="cover"
-              />
-              <View style={styles.postOverlay}>
-                <Text style={styles.postCaption}>{post.caption}</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      </View>
-    ));
-  };
-
-  // Main render function
-  console.log('HomeScreen render:', { loading, page, showLibrary, postsCount: posts.length, currentPageIndex });
-  
   return (
     <View style={styles.container}>
-      {/* Animated GIF Background - Full Screen */}
       <Image
         source={require('../../assets/images/gradient-background.gif')}
-        style={styles.gradientBackground}
+        style={styles.background}
         resizeMode="cover"
-        onLoad={() => console.log('GIF loaded successfully')}
-        onError={(e) => console.error('GIF load error:', e.nativeEvent.error)}
       />
       
-      {/* Status Bar */}
-      <StatusBar 
-        barStyle="dark-content"
-        backgroundColor="transparent"
-        translucent={true}
-      />
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Fixed header that stays at the top with safe area padding */}
-      {/* <View style={[styles.fixedHeaderSafeArea, { paddingTop: insets.top }]}>
-        <View style={styles.fixedHeader}>
-          <View style={styles.postHeaderLeft}>
-            <Avatar size={32} />
-          </View>
-          <View style={styles.postHeaderCenter}>
-            <Text style={styles.postHeaderText}>{showLibrary ? "My Library" : "Everyone"}</Text>
-            <Ionicons name="chevron-down" size={16} color="#333333" />
-          </View>
-          <View style={styles.postHeaderRight}>
-            <TouchableOpacity onPress={toggleLibrary}>
-              <Ionicons 
-                name={showLibrary ? "people-outline" : "library-outline"} 
-                size={24} 
-                color="#333333" 
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View> */}
-
-      {/* Conditional rendering based on showLibrary state */}
-      {loading && page === 1 ? (
-        <View style={styles.fullScreenLoader}>
-          <ActivityIndicator size="large" color="#0000ff" />
-          <Text style={styles.loadingText}>Loading posts...</Text>
-        </View>
-      ) : showLibrary ? (
-        // Library view with pagination
-        <FlatList
-          data={posts}
-          keyExtractor={(item) => item.id.toString()}
-          numColumns={2}
-          contentContainerStyle={styles.libraryContainer}
-          renderItem={({ item }) => (
-            <TouchableOpacity 
-              style={styles.libraryItem}
-              onPress={() => {
-                // Handle post selection
-                Alert.alert('Post', item.caption || 'No caption');
-              }}
-            >
-              <Image 
-                source={{ uri: item.image_url }} 
-                style={styles.libraryImage} 
-                resizeMode="cover"
-              />
-            </TouchableOpacity>
-          )}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No posts in your library</Text>
-            </View>
-          }
-          ListFooterComponent={
-            loading ? (
-              <View style={styles.loadingMoreContainer}>
-                <ActivityIndicator size="small" color="#0000ff" />
-                <Text style={styles.loadingText}>Loading more posts...</Text>
-              </View>
-            ) : !hasMore && posts.length > 0 ? (
-              <View style={styles.endOfLibraryContainer}>
-                <Text style={styles.endOfFeedText}>You've reached the end!</Text>
-              </View>
-            ) : null
-          }
-          onEndReached={loadMorePosts}
-          onEndReachedThreshold={0.5}
-          refreshing={loading && page === 1}
-          onRefresh={() => fetchPosts(true)}
-        />
-      ) : (
-        /* Vertical scrolling feed */
-        <ScrollView
-          ref={scrollViewRef}
-          pagingEnabled
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          contentContainerStyle={styles.scrollViewContent}
-          onMomentumScrollEnd={(event) => {
-            // Check if we're near the end and should load more
-            const offsetY = event.nativeEvent.contentOffset.y;
-            const contentHeight = event.nativeEvent.contentSize.height;
-            const scrollViewHeight = event.nativeEvent.layoutMeasurement.height;
-            
-            if (offsetY + scrollViewHeight >= contentHeight - 20) {
-              loadMorePosts();
-            }
-          }}
-        >
-          {/* Upload view */}
-          <View style={[styles.pageContainer, { height: pageHeight }]}>
-            {renderUploadView()}
-          </View>
-
-          {/* Posts */}
-          {renderPosts()}
-          
-          {hasMore && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#0000ff" />
-              <Text style={styles.loadingText}>Loading more posts...</Text>
-            </View>
-          )}
-          {!hasMore && posts.length > 0 && (
-            <View style={styles.endOfFeedContainer}>
-              <Text style={styles.endOfFeedText}>You've reached the end!</Text>
-            </View>
-          )}
-        </ScrollView>
-      )}
-      
-      {/* Fixed footer with message input and navigation - only show message input when not on camera view */}
-      {/* <View style={[styles.fixedFooterSafeArea, { paddingBottom: insets.bottom }]}>
-        {currentPageIndex !== 0 && (
-          <View style={styles.floatingMessageInputWrapper}>
-            <TextInput
-              style={styles.messageInputField}
-              placeholder="Send message..."
-              placeholderTextColor="#999"
-              value={messageText}
-              onChangeText={setMessageText}
-            />
-            <View style={styles.emojiButtonsRow}>
-              <TouchableOpacity style={styles.emojiButtonItem}>
-                <Text style={styles.emojiText}>❤️</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.emojiButtonItem}>
-                <Text style={styles.emojiText}>😍</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.emojiButtonItem}>
-                <Text style={styles.emojiText}>🔥</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.emojiButtonItem}>
-                <Ionicons name="happy-outline" size={24} color="#999" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-        
-        <View style={styles.bottomNavBar}>
-          <TouchableOpacity style={styles.navButtonItem}>
-            <Ionicons name="grid-outline" size={24} color="#333333" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.navButtonItem, styles.centerButtonItem]}>
-            <View style={styles.centerButtonCircleItem} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navButtonItem}>
-            <Ionicons name="arrow-up-outline" size={24} color="#333333" />
-          </TouchableOpacity>
-        </View>
-      </View> */}
-
-      {/* Page indicators on right side */}
-      <View style={styles.pageIndicators}>
-        {[0, ...posts.map((_, i) => i + 1)].map((index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.pageIndicator,
-              currentPageIndex === index && styles.activePageIndicator,
-            ]}
-            onPress={() => scrollToPage(index)}
-          />
-        ))}
-      </View>
-
-      {/* Library toggle button */}
-      <TouchableOpacity 
-        style={styles.libraryToggleButton} 
-        onPress={() => setShowLibrary(true)}
+      <ScrollView 
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 40 }]}
+        showsVerticalScrollIndicator={false}
       >
-        <Ionicons name="images-outline" size={24} color="#333333" />
-      </TouchableOpacity>
-
-      {/* Library view (conditionally rendered) */}
-      {showLibrary && (
-        <View style={styles.libraryOverlay}>
-          <View style={styles.libraryHeader}>
-            <Text style={styles.libraryTitle}>Your Library</Text>
-            <TouchableOpacity onPress={() => setShowLibrary(false)}>
-              <Ionicons name="close" size={24} color="#333333" />
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={Array(20).fill(0)}
-            numColumns={3}
-            renderItem={renderLibraryItem}
-            keyExtractor={(_, index) => `library-${index}`}
-            contentContainerStyle={styles.libraryGridContainer}
+        <View style={styles.header}>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={styles.appIcon}
+            resizeMode="contain"
           />
+          <Text style={styles.title}>documentAI</Text>
+          <Text style={styles.subtitle}>Upload & Process Documents with AI</Text>
         </View>
-      )}
+
+        <View style={styles.uploadBox}>
+          {selectedFile ? (
+            <View style={styles.fileInfo}>
+              <Ionicons 
+                name={selectedFile.mimeType?.includes('pdf') ? 'document' : 'image'} 
+                size={64} 
+                color="#8B5CF6" 
+              />
+              <Text style={styles.fileName} numberOfLines={2}>
+                {selectedFile.name}
+              </Text>
+              <Text style={styles.fileSize}>
+                {(selectedFile.size / 1024).toFixed(2)} KB
+              </Text>
+              
+              <View style={styles.fileActions}>
+                <TouchableOpacity
+                  style={styles.changeButton}
+                  onPress={handlePickDocument}
+                  disabled={uploading || processing}
+                >
+                  <Ionicons name="swap-horizontal" size={20} color="#6B7280" />
+                  <Text style={styles.changeButtonText}>Change</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <>
+              <Ionicons name="cloud-upload-outline" size={80} color="#8B5CF6" />
+              <Text style={styles.uploadText}>Upload Your Document</Text>
+              <Text style={styles.uploadSubtext}>PDF, Images, or Scanned Documents</Text>
+              
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={styles.selectButton}
+                  onPress={handlePickDocument}
+                >
+                  <Ionicons name="document-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.selectButtonText}>Document</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.selectButton, styles.imageButton]}
+                  onPress={handlePickImage}
+                >
+                  <Ionicons name="image-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.selectButtonText}>Image</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+
+        {selectedFile && (
+          <>
+            <TouchableOpacity
+              style={[styles.uploadButton, (uploading || processing) && styles.uploadButtonDisabled]}
+              onPress={handleUpload}
+              disabled={uploading || processing}
+            >
+              {uploading || processing ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.uploadButtonText}>
+                    {uploading ? `Uploading ${progress}%` : 'Processing...'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload" size={20} color="#FFFFFF" />
+                  <Text style={styles.uploadButtonText}>Upload & Process</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {uploading && (
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progress}%` }]} />
+              </View>
+            )}
+          </>
+        )}
+
+        <View style={styles.features}>
+          <Text style={styles.featuresTitle}>Features</Text>
+          <View style={styles.featureItem}>
+            <Ionicons name="scan" size={24} color="#8B5CF6" />
+            <Text style={styles.featureText}>Multi-page scanning</Text>
+          </View>
+          <View style={styles.featureItem}>
+            <Ionicons name="analytics" size={24} color="#8B5CF6" />
+            <Text style={styles.featureText}>AI-powered extraction</Text>
+          </View>
+          <View style={styles.featureItem}>
+            <Ionicons name="create" size={24} color="#8B5CF6" />
+            <Text style={styles.featureText}>Editable forms</Text>
+          </View>
+        </View>
+      </ScrollView>
     </View>
   );
 };
@@ -743,81 +378,39 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
   },
-  gradientBackground: {
+  background: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
     width: '100%',
     height: '100%',
-    zIndex: 0,
   },
-  fixedHeaderSafeArea: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    backdropFilter: 'blur(10px)',
-  },
-  fixedHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'transparent',
-    width: '100%',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  fixedFooterSafeArea: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    backdropFilter: 'blur(10px)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  scrollViewContent: {
-    // No additional padding needed as we're using full screen height
-  },
-  pageContainer: {
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 60, // Account for header
-    paddingBottom: 70, // Account for footer
-  },
-  contentPositioner: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: -100, // Move content slightly up
-  },
-  postWrapper: {
-    width: '100%',
-    height: '80%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  uploadViewContainer: {
-    width: '100%',
-    height: '80%',
-    justifyContent: 'center',
-    alignItems: 'center',
+  content: {
     padding: 20,
+    paddingBottom: 40,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 32,
+    paddingHorizontal: 16,
+  },
+  appIcon: {
+    width: 100,
+    height: 100,
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
   },
   uploadBox: {
-    width: '90%',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 24,
     padding: 40,
     alignItems: 'center',
@@ -829,18 +422,75 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+    marginBottom: 24,
   },
-  uploadTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  uploadText: {
+    fontSize: 20,
+    fontWeight: '600',
     color: '#1F2937',
     marginTop: 16,
-    marginBottom: 8,
   },
-  uploadSubtitle: {
+  uploadSubtext: {
     fontSize: 14,
     color: '#6B7280',
+    marginTop: 8,
     marginBottom: 24,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  selectButton: {
+    flexDirection: 'row',
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+  imageButton: {
+    backgroundColor: '#10B981',
+  },
+  selectButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  fileInfo: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  fileName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 16,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  fileSize: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+  },
+  fileActions: {
+    marginTop: 16,
+  },
+  changeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  changeButtonText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '600',
   },
   uploadButton: {
     flexDirection: 'row',
@@ -850,473 +500,68 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 200,
+    gap: 8,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 16,
+  },
+  uploadButtonDisabled: {
+    opacity: 0.6,
   },
   uploadButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  contentContainer: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  floatingMessageInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 10,
-    marginTop: 5,
-    backgroundColor: '#EEEEEE',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  postAuthorSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 8,
-    paddingHorizontal: 16,
-    width: '90%',
-  },
-  messageInputWrapper: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  messageInputField: {
-    flex: 1,
-    height: 40,
-    color: '#333333',
-  },
-  emojiButtonsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  emojiButtonItem: {
-    paddingHorizontal: 8,
-  },
-  emojiText: {
-    fontSize: 20,
-  },
-  bottomNavBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 20,
-  },
-  navButtonItem: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  centerButtonItem: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 2,
-    borderColor: '#F59E0B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  centerButtonCircleItem: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#CCCCCC',
-  },
-  // Library toggle button
-  libraryToggleButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  // Grid container for library
-  libraryGridContainer: {
-    padding: 2,
-  },
-  postOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    padding: 12,
-  },
-  postCaption: {
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  postImage: {
-    width: '100%',
-    height: '100%',
-  },
-  pageIndicators: {
-    position: 'absolute',
-    right: 16,
-    top: '50%',
-    transform: [{ translateY: -50 }],
-    zIndex: 5,
-  },
-  pageIndicator: {
-    width: 8,
+  progressBar: {
     height: 8,
+    backgroundColor: '#E5E7EB',
     borderRadius: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    marginVertical: 4,
-  },
-  activePageIndicator: {
-    backgroundColor: '#333333',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  permissionContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  permissionText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 16,
-    color: '#333333',
-  },
-  cameraContainer: {
-    width: '90%',
-    aspectRatio: 1,
-    borderRadius: 24,
     overflow: 'hidden',
-    position: 'relative',
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: 24,
   },
-  camera: {
-    flex: 1,
-  },
-  flashButton: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 20,
-    padding: 8,
-  },
-  zoomButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 20,
-    padding: 8,
-  },
-  zoomText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  cameraControls: {
-    width: '80%',
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    borderRadius: 16,
-    paddingBottom: 20,
-    paddingTop: 20,
-  },
-  galleryButton: {
-    padding: 12,
-  },
-  captureButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#CCCCCC',
-  },
-  captureButtonInner: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-  },
-  flipButton: {
-    padding: 12,
-  },
-  postContainer: {
-    width: '90%',
-    aspectRatio: 1,
-    borderRadius: 24,
-    overflow: 'hidden',
-    position: 'relative',
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  postHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#FAF9F6',
-    width: '90%',
-    marginBottom: 10,
-    alignSelf: 'center',
-  },
-  postHeaderLeft: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
-  postHeaderCenter: {
-    flex: 2,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  postHeaderRight: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  postHeaderText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginRight: 4,
-    color: '#333333',
-  },
-  libraryItem: {
-    flex: 1,
-    margin: 4,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#f5f5f5',
-  },
-  libraryImage: {
-    width: '100%',
-    height: 150,
-    resizeMode: 'cover',
-    borderRadius: 8,
-  },
-  libraryContainer: {
-    padding: 16,
-  },
-  loadingMoreContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-    height: screenHeight / 2,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-    color: '#333333',
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-  },
-  likesText: {
-    fontSize: 14,
-    color: '#666666',
-    padding: 12,
-  },
-  postActionsContainer: {
-    padding: 12,
-  },
-  libraryOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#FAF9F6',
-    zIndex: 10,
-  },
-  libraryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
-  libraryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: screenHeight,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666666',
-  },
-  endOfFeedContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: screenHeight,
-  },
-  endOfFeedText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#666666',
-  },
-  endOfLibraryContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  capturedImage: {
-    width: '100%',
+  progressFill: {
     height: '100%',
-    resizeMode: 'cover',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#000',
-    borderRadius: 20,
+    backgroundColor: '#8B5CF6',
   },
-  captionInput: {
-    position: 'absolute',
-    bottom: 60,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  buttonRow: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  retakeButton: {
-    backgroundColor: '#CCCCCC',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  postButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  overlayContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  authorNameText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1F2937',
-    marginLeft: 8,
-  },
-  postTimeText: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    marginLeft: 'auto',
-  },
-  paywallOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 20,
-  },
-  paywallContent: {
-    width: '80%',
-    backgroundColor: '#FFFFFF',
+  features: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 16,
     padding: 24,
-    alignItems: 'center',
+    marginTop: 8,
   },
-  paywallCloseButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-  },
-  paywallTitle: {
-    fontSize: 24,
+  featuresTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
+    color: '#1F2937',
     marginBottom: 16,
   },
-  paywallDescription: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 24,
-    color: '#666666',
-  },
-  fullScreenLoader: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
+  featureItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    zIndex: 10,
+    gap: 12,
+    marginBottom: 12,
+  },
+  featureText: {
+    fontSize: 16,
+    color: '#4B5563',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  resultsContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  backButton: {
+    padding: 8,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
   },
 });
