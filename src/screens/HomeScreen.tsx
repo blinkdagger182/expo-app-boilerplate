@@ -28,6 +28,7 @@ import {
   AppState,
   StatusBar
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from '../components/common/Avatar';
 import { Button } from '../components/common/Button';
@@ -40,6 +41,7 @@ import { SUPERWALL_TRIGGERS } from '../config/superwall';
 import { useAuth } from '../contexts/AuthContext';
 import { supabaseService, Post as PostType } from '../services/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { fileUploadService } from '../services/fileUpload';
 
 // Create a fallback camera component
 const createCameraComponents = () => {
@@ -70,7 +72,7 @@ const createCameraComponents = () => {
 
 const { CameraView, useCameraPermissions } = createCameraComponents();
 
-const { height: screenHeight } = Dimensions.get('window');
+const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 
 interface HomePageProps {
   // Add any props needed
@@ -112,6 +114,8 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
   const footerHeight = 70; // Height of the footer
   const pageHeight = screenHeight; // Full screen height for each page
   const availableHeight = screenHeight - (insets.top + insets.bottom + headerHeight + footerHeight);
+  
+
 
   // Fetch posts from Supabase
   const fetchPosts = async (reset = false) => {
@@ -384,7 +388,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
   // Navigate to messages
   const navigateToMessages = () => {
     // Navigate to Messages tab (index 2)
-    router.push('/pawket');
+    // router.push('/pawket');
   };
 
   // Function to scroll to a specific page
@@ -395,104 +399,69 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
     });
   };
 
-  // Render camera view with buttons
-  const renderCameraView = () => {
+  // Handle file upload
+  const handleFileUpload = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: false,
+        quality: 1,
+      });
+      
+      if (!result.canceled && result.assets[0]) {
+        setUploading(true);
+        const file = result.assets[0];
+        
+        // Upload file using the service
+        const uploadResult = await fileUploadService.uploadFile(
+          file.uri,
+          file.fileName || `file_${Date.now()}.${file.uri.split('.').pop()}`,
+          {
+            userId: user?.id,
+            uploadedAt: new Date().toISOString(),
+          }
+        );
+        
+        if (uploadResult.success) {
+          Alert.alert('Success', 'File uploaded successfully!');
+          console.log('File URL:', uploadResult.fileUrl);
+        } else {
+          Alert.alert('Error', uploadResult.message || 'Failed to upload file');
+        }
+        
+        setUploading(false);
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      Alert.alert('Error', 'Failed to upload file');
+      setUploading(false);
+    }
+  };
+
+  // Render upload view
+  const renderUploadView = () => {
     if (currentPageIndex !== 0) return null;
     
-    if (!permission) {
-      return (
-        <View style={styles.permissionContainer}>
-          <Text style={styles.permissionText}>
-            We need camera permission to take pictures
-          </Text>
-          <Button 
-            rounded
-            onPress={requestPermission}
-          >
-            Request Permission
-          </Button>
-        </View>
-      );
-    }
-    
     return (
-      <View style={styles.cameraViewContainer}>
-        {capturedImage ? (
-          // Overlay captured image with caption input
-          <View style={styles.contentContainer}>
-            <View style={styles.cameraContainer}>
-              {/* Debug text to verify image URI */}
-              <Text style={{position: 'absolute', top: 50, left: 10, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.7)', padding: 5, fontSize: 10}}>
-                Image loaded: {capturedImage ? 'Yes' : 'No'}
-              </Text>
-              
-              {/* Flash button on left */}
-              <TouchableOpacity style={styles.flashButton}>
-                <Ionicons name="flash-outline" size={24} color="#333333" />
-              </TouchableOpacity>
-              
-              {/* The captured image */}
-              <Image 
-                source={{ uri: capturedImage }} 
-                style={styles.capturedImage} 
-                resizeMode="cover"
-                onLoad={() => console.log('Image loaded successfully')}
-                onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
-              />
-              
-              <TextInput
-                style={styles.captionInput}
-                placeholder="Add a caption..."
-                placeholderTextColor="#aaa"
-                value={caption}
-                onChangeText={setCaption}
-              />
-              <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.retakeButton} onPress={() => setCapturedImage(null)}>
-                  <Text style={styles.buttonText}>Retake</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.postButton} onPress={handlePost}>
-                  <Text style={styles.buttonText}>Post</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.contentContainer}>
-            <View style={styles.cameraContainer}>
-              {/* Live Camera View */}
-              <CameraView
-                ref={cameraRef}
-                style={styles.camera}
-                facing={cameraFacing}
-                onCameraReady={onCameraReady}
-              />
-              
-              {/* Flash button on left */}
-              <TouchableOpacity style={styles.flashButton}>
-                <Ionicons name="flash-outline" size={24} color="#333333" />
-              </TouchableOpacity>
-              
-              {/* Zoom button on right */}
-              <TouchableOpacity style={styles.zoomButton}>
-                <Text style={styles.zoomText}>1×</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-    
-        {/* Camera Controls - Bottom row */}
-        <View style={styles.cameraControls}>
-          <TouchableOpacity style={styles.galleryButton} onPress={showUploadPaywall}>
-            <Ionicons name="images-outline" size={30} color="#333333" />
-          </TouchableOpacity>
+      <View style={styles.uploadViewContainer}>
+        <View style={styles.uploadBox}>
+          <Ionicons name="cloud-upload-outline" size={64} color="#8B5CF6" />
+          <Text style={styles.uploadTitle}>Upload Your File</Text>
+          <Text style={styles.uploadSubtitle}>PDF, Images, or any document</Text>
           
-          <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
-            <View style={styles.captureButtonInner} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
-            <Ionicons name="camera-reverse-outline" size={30} color="#333333" />
+          <TouchableOpacity 
+            style={styles.uploadButton}
+            onPress={handleFileUpload}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="document-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.uploadButtonText}>Choose File</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -552,17 +521,28 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
   };
 
   // Main render function
+  console.log('HomeScreen render:', { loading, page, showLibrary, postsCount: posts.length, currentPageIndex });
+  
   return (
     <View style={styles.container}>
+      {/* Animated GIF Background - Full Screen */}
+      <Image
+        source={require('../../assets/images/gradient-background.gif')}
+        style={styles.gradientBackground}
+        resizeMode="cover"
+        onLoad={() => console.log('GIF loaded successfully')}
+        onError={(e) => console.error('GIF load error:', e.nativeEvent.error)}
+      />
+      
       {/* Status Bar */}
       <StatusBar 
-        barStyle={statusBarStyle}
+        barStyle="dark-content"
         backgroundColor="transparent"
         translucent={true}
       />
       
       {/* Fixed header that stays at the top with safe area padding */}
-      <View style={[styles.fixedHeaderSafeArea, { paddingTop: insets.top }]}>
+      {/* <View style={[styles.fixedHeaderSafeArea, { paddingTop: insets.top }]}>
         <View style={styles.fixedHeader}>
           <View style={styles.postHeaderLeft}>
             <Avatar size={32} />
@@ -581,7 +561,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </View> */}
 
       {/* Conditional rendering based on showLibrary state */}
       {loading && page === 1 ? (
@@ -653,9 +633,9 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
             }
           }}
         >
-          {/* Camera view */}
+          {/* Upload view */}
           <View style={[styles.pageContainer, { height: pageHeight }]}>
-            {renderCameraView()}
+            {renderUploadView()}
           </View>
 
           {/* Posts */}
@@ -676,7 +656,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
       )}
       
       {/* Fixed footer with message input and navigation - only show message input when not on camera view */}
-      <View style={[styles.fixedFooterSafeArea, { paddingBottom: insets.bottom }]}>
+      {/* <View style={[styles.fixedFooterSafeArea, { paddingBottom: insets.bottom }]}>
         {currentPageIndex !== 0 && (
           <View style={styles.floatingMessageInputWrapper}>
             <TextInput
@@ -714,7 +694,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
             <Ionicons name="arrow-up-outline" size={24} color="#333333" />
           </TouchableOpacity>
         </View>
-      </View>
+      </View> */}
 
       {/* Page indicators on right side */}
       <View style={styles.pageIndicators}>
@@ -763,7 +743,17 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF9F6',
+    backgroundColor: 'transparent',
+  },
+  gradientBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    zIndex: 0,
   },
   fixedHeaderSafeArea: {
     position: 'absolute',
@@ -771,17 +761,18 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
-    backgroundColor: '#FAF9F6',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backdropFilter: 'blur(10px)',
   },
   fixedHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#FAF9F6',
+    padding: 16,
+    backgroundColor: 'transparent',
     width: '100%',
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
   fixedFooterSafeArea: {
     position: 'absolute',
@@ -789,9 +780,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
-    backgroundColor: '#FAF9F6',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backdropFilter: 'blur(10px)',
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    borderTopColor: 'rgba(0, 0, 0, 0.1)',
   },
   scrollViewContent: {
     // No additional padding needed as we're using full screen height
@@ -816,11 +808,54 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cameraViewContainer: {
+  uploadViewContainer: {
     width: '100%',
     height: '80%',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
+  },
+  uploadBox: {
+    width: '90%',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 24,
+    padding: 40,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#8B5CF6',
+    borderStyle: 'dashed',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  uploadTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  uploadSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 24,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 200,
+  },
+  uploadButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   contentContainer: {
     width: '100%',
@@ -971,11 +1006,18 @@ const styles = StyleSheet.create({
   cameraContainer: {
     width: '90%',
     aspectRatio: 1,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
     position: 'relative',
     alignSelf: 'center',
-    backgroundColor: '#000',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   camera: {
     flex: 1,
@@ -1002,10 +1044,9 @@ const styles = StyleSheet.create({
   },
   cameraControls: {
     width: '80%',
-    display: 'flex',
     flexDirection: 'row',
     justifyContent: 'space-evenly',
-    borderRadius: '16px',
+    borderRadius: 16,
     paddingBottom: 20,
     paddingTop: 20,
   },
@@ -1034,16 +1075,18 @@ const styles = StyleSheet.create({
   postContainer: {
     width: '90%',
     aspectRatio: 1,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
     position: 'relative',
     alignSelf: 'center',
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   postHeaderRow: {
     flexDirection: 'row',
@@ -1108,6 +1151,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginTop: 16,
     marginBottom: 8,
+    color: '#333333',
   },
   actionButtonsRow: {
     flexDirection: 'row',
@@ -1222,7 +1266,7 @@ const styles = StyleSheet.create({
   authorNameText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#333333',
+    color: '#1F2937',
     marginLeft: 8,
   },
   postTimeText: {

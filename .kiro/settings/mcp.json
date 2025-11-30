@@ -2,6 +2,14 @@
   "mcpServers": {
     "supabase": {
       "url": "https://mcp.supabase.com/mcp?project_ref=qqidxdmclegmqpnhqnqb"
+    },
+
+    "Context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp", "--api-key", "ctx7sk-3a422446-6bc2-46e8-a1fc-d399ddb06dcc"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": []
     }
   }
 }
