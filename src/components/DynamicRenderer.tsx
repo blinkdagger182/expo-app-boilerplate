@@ -5,59 +5,84 @@ import { ParagraphComponent } from './dynamic/ParagraphComponent';
 import { TableComponent } from './dynamic/TableComponent';
 import { InputComponent } from './dynamic/InputComponent';
 import { ButtonComponent } from './dynamic/ButtonComponent';
+import { DropdownComponent } from './dynamic/DropdownComponent';
+import { CheckboxComponent } from './dynamic/CheckboxComponent';
 
-export interface UISchema {
-  type: 'title' | 'paragraph' | 'table' | 'input' | 'button';
-  text?: string;
+export interface UIComponent {
+  id: string;
+  type: 'input' | 'checkbox' | 'dropdown' | 'button' | 'paragraph' | 'title';
   label?: string;
-  value?: string;
-  columns?: string[];
-  rows?: any[][];
-  action?: string;
+  value?: any;
+  options?: string[];
+  bbox?: number[];
+  page?: number;
 }
 
 interface DynamicRendererProps {
-  schema: UISchema[];
-  onInputChange?: (index: number, value: string) => void;
+  components: UIComponent[];
+  formData: Record<string, any>;
+  onInputChange?: (fieldId: string, value: any) => void;
   onButtonPress?: (action: string) => void;
 }
 
 export const DynamicRenderer: React.FC<DynamicRendererProps> = ({
-  schema,
+  components,
+  formData,
   onInputChange,
   onButtonPress,
 }) => {
-  const renderComponent = (item: UISchema, index: number) => {
-    switch (item.type) {
+  const renderComponent = (component: UIComponent) => {
+    const fieldId = component.id;
+    const currentValue = formData[fieldId] ?? component.value;
+
+    switch (component.type) {
       case 'title':
-        return <TitleComponent key={index} text={item.text || ''} />;
+        return <TitleComponent key={fieldId} text={component.label || ''} />;
+      
       case 'paragraph':
-        return <ParagraphComponent key={index} text={item.text || ''} />;
-      case 'table':
-        return (
-          <TableComponent
-            key={index}
-            columns={item.columns || []}
-            rows={item.rows || []}
-          />
-        );
+        return <ParagraphComponent key={fieldId} text={component.label || ''} />;
+      
       case 'input':
         return (
           <InputComponent
-            key={index}
-            label={item.label || ''}
-            value={item.value || ''}
-            onChange={(value) => onInputChange?.(index, value)}
+            key={fieldId}
+            label={component.label || ''}
+            value={currentValue || ''}
+            onChange={(value) => onInputChange?.(fieldId, value)}
+            type="text"
           />
         );
+      
+      case 'dropdown':
+        return (
+          <DropdownComponent
+            key={fieldId}
+            label={component.label || ''}
+            value={currentValue || ''}
+            options={component.options || []}
+            onChange={(value) => onInputChange?.(fieldId, value)}
+          />
+        );
+      
+      case 'checkbox':
+        return (
+          <CheckboxComponent
+            key={fieldId}
+            label={component.label || ''}
+            checked={currentValue === true || currentValue === 'true'}
+            onChange={(checked) => onInputChange?.(fieldId, checked)}
+          />
+        );
+      
       case 'button':
         return (
           <ButtonComponent
-            key={index}
-            label={item.label || ''}
-            onPress={() => onButtonPress?.(item.action || '')}
+            key={fieldId}
+            label={component.label || ''}
+            onPress={() => onButtonPress?.('submit')}
           />
         );
+      
       default:
         return null;
     }
@@ -65,7 +90,7 @@ export const DynamicRenderer: React.FC<DynamicRendererProps> = ({
 
   return (
     <View style={styles.container}>
-      {schema.map((item, index) => renderComponent(item, index))}
+      {components.map((component) => renderComponent(component))}
     </View>
   );
 };

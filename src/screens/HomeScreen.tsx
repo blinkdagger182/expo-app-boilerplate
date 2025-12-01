@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -9,19 +9,18 @@ import {
   ActivityIndicator,
   StatusBar,
   ScrollView,
-  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadAndProcessDocument, UploadProgress } from '../api/upload';
-import { getDocumentResult } from '../api/processDocument';
-import { DynamicRenderer, UISchema } from '../components/DynamicRenderer';
+import { overlayPDF, sharePDF } from '../api/overlay';
+import { DynamicRenderer } from '../components/DynamicRenderer';
 import { API_CONFIG } from '../config/api';
-
-const { height: screenHeight } = Dimensions.get('window');
+import { saveFormData, loadFormData, deleteFormData } from '../utils/storage';
 
 interface HomePageProps {}
 
@@ -30,12 +29,26 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
   const [progress, setProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [processing, setProcessing] = useState(false);
-  const [schema, setSchema] = useState<UISchema[]>([]);
-  const [formData, setFormData] = useState<Record<number, string>>({});
+  const [components, setComponents] = useState<any[]>([]);
+  const [fieldMap, setFieldMap] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, any>>({});
   const [showResults, setShowResults] = useState(false);
+  const [documentId, setDocumentId] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [savedPdfUri, setSavedPdfUri] = useState<string>('');
   
-  const { user } = useAuth();
   const insets = useSafeAreaInsets();
+
+  // Autosave form data every 5 seconds
+  useEffect(() => {
+    if (documentId && Object.keys(formData).length > 0) {
+      const timer = setTimeout(() => {
+        saveFormData(documentId, formData, selectedFile?.name);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [formData, documentId, selectedFile]);
 
   const handlePickDocument = async () => {
     try {
@@ -47,7 +60,8 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
       if (!result.canceled && result.assets[0]) {
         setSelectedFile(result.assets[0]);
         setShowResults(false);
-        setSchema([]);
+        setComponents([]);
+        setFormData({});
       }
     } catch (error) {
       console.error('Error picking document:', error);
@@ -66,7 +80,8 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
       if (!result.canceled && result.assets[0]) {
         setSelectedFile(result.assets[0]);
         setShowResults(false);
-        setSchema([]);
+        setComponents([]);
+        setFormData({});
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -96,13 +111,30 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
     setUploading(false);
 
     if (result.success && result.data) {
-      // Convert backend UI schema to our format
       setProcessing(true);
       
       try {
-        // Convert the UI components
-        const convertedSchema = convertBackendUIToSchema(result.data.ui);
-        setSchema(convertedSchema);
+        // Store document ID and field map for later overlay
+        const docId = result.data.documentId || `doc_${Date.now()}`;
+        setDocumentId(docId);
+        setComponents(result.data.components || []);
+        setFieldMap(result.data.fieldMap || {});
+        
+        // Initialize form data with default values
+        const initialFormData: Record<string, any> = {};
+        result.data.components.forEach((comp: any) => {
+          initialFormData[comp.id] = comp.value;
+        });
+        
+        // Try to load saved form data
+        const savedData = await loadFormData(docId);
+        if (savedData) {
+          setFormData(savedData.formData);
+          Alert.alert('Restored', 'Previously saved form data has been restored');
+        } else {
+          setFormData(initialFormData);
+        }
+        
         setShowResults(true);
       } catch (error) {
         console.error('Schema conversion error:', error);
@@ -115,99 +147,97 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
     }
   };
 
-  // Convert backend UI schema to our component format
-  const convertBackendUIToSchema = (backendUI: any): UISchema[] => {
-    if (!backendUI || !backendUI.components) {
-      return [];
-    }
-
-    const schema: UISchema[] = [];
-
-    function processComponent(component: any): UISchema | UISchema[] | null {
-      switch (component.type) {
-        case 'section':
-          const sectionComponents: UISchema[] = [];
-          if (component.title) {
-            sectionComponents.push({
-              type: 'title',
-              text: component.title,
-            });
-          }
-          if (component.components) {
-            component.components.forEach((child: any) => {
-              const processed = processComponent(child);
-              if (Array.isArray(processed)) {
-                sectionComponents.push(...processed);
-              } else if (processed) {
-                sectionComponents.push(processed);
-              }
-            });
-          }
-          return sectionComponents;
-
-        case 'input':
-        case 'number':
-        case 'email':
-        case 'date':
-        case 'select':
-        case 'checkbox':
-          return {
-            type: 'input',
-            label: component.label || '',
-            value: component.value || component.placeholder || '',
-          };
-
-        case 'table':
-          return {
-            type: 'table',
-            columns: component.columns || [],
-            rows: component.rows || [],
-          };
-
-        case 'text':
-          return {
-            type: 'paragraph',
-            text: component.content || '',
-          };
-
-        case 'button':
-          return {
-            type: 'button',
-            label: component.label || 'Submit',
-            action: component.action || 'submit',
-          };
-
-        default:
-          return null;
-      }
-    }
-
-    backendUI.components.forEach((component: any) => {
-      const processed = processComponent(component);
-      if (Array.isArray(processed)) {
-        schema.push(...processed);
-      } else if (processed) {
-        schema.push(processed);
-      }
-    });
-
-    return schema;
+  const handleInputChange = (fieldId: string, value: any) => {
+    setFormData((prev) => ({ ...prev, [fieldId]: value }));
   };
 
-  const handleInputChange = (index: number, value: string) => {
-    setFormData((prev) => ({ ...prev, [index]: value }));
-  };
-
-  const handleButtonPress = (action: string) => {
+  const handleButtonPress = async (action: string) => {
     console.log('Button pressed:', action, formData);
-    Alert.alert('Success', `Form submitted successfully!`, [
-      { text: 'Upload Another', onPress: () => {
-        setSelectedFile(null);
-        setShowResults(false);
-        setSchema([]);
-        setFormData({});
-      }},
-    ]);
+    
+    if (action === 'submit') {
+      await handleSubmitForm();
+    }
+  };
+
+  const handleSubmitForm = async () => {
+    if (!selectedFile) {
+      Alert.alert('Error', 'No document selected');
+      return;
+    }
+
+    setSubmitting(true);
+    
+    try {
+      // Save form data before submission
+      await saveFormData(documentId, formData, selectedFile?.name);
+      
+      // Call overlay API to generate filled PDF
+      const result = await overlayPDF(
+        selectedFile.uri,
+        selectedFile.name,
+        documentId,
+        formData,
+        fieldMap,
+        API_CONFIG.endpoint
+      );
+      
+      if (result.success && result.pdfUri) {
+        setSavedPdfUri(result.pdfUri);
+        
+        Alert.alert(
+          'Success!',
+          'Your document has been filled and saved locally.',
+          [
+            {
+              text: 'View PDF',
+              onPress: () => handleViewPDF(result.pdfUri!),
+            },
+            {
+              text: 'Share',
+              onPress: () => handleSharePDF(result.pdfUri!),
+            },
+            {
+              text: 'Upload Another',
+              onPress: handleReset,
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Error', result.message || 'Failed to generate filled PDF');
+      }
+    } catch (error) {
+      console.error('Submit error:', error);
+      Alert.alert('Error', 'Failed to submit form');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleViewPDF = async (pdfUri: string) => {
+    try {
+      // Open PDF viewer (requires expo-file-system and a PDF viewer)
+      Alert.alert('PDF Saved', `PDF saved at: ${pdfUri}`);
+    } catch (error) {
+      console.error('View PDF error:', error);
+      Alert.alert('Error', 'Failed to open PDF');
+    }
+  };
+
+  const handleSharePDF = async (pdfUri: string) => {
+    const shared = await sharePDF(pdfUri);
+    if (!shared) {
+      Alert.alert('Info', 'Sharing not available on this device');
+    }
+  };
+
+  const handleReset = () => {
+    setSelectedFile(null);
+    setShowResults(false);
+    setComponents([]);
+    setFieldMap({});
+    setFormData({});
+    setDocumentId('');
+    setSavedPdfUri('');
   };
 
   if (showResults) {
@@ -225,16 +255,50 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
           <TouchableOpacity onPress={() => setShowResults(false)} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Document Results</Text>
+          <Text style={styles.headerTitle}>Fill Document</Text>
           <View style={{ width: 24 }} />
         </View>
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.resultsContent}>
+          {submitting && (
+            <View style={styles.submittingOverlay}>
+              <ActivityIndicator size="large" color="#8B5CF6" />
+              <Text style={styles.submittingText}>Generating filled PDF...</Text>
+            </View>
+          )}
+          
           <DynamicRenderer
-            schema={schema}
+            components={components}
+            formData={formData}
             onInputChange={handleInputChange}
             onButtonPress={handleButtonPress}
           />
+          
+          <View style={styles.formActions}>
+            <TouchableOpacity
+              style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+              onPress={() => handleButtonPress('submit')}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  <Text style={styles.submitButtonText}>Submit & Generate PDF</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={() => saveFormData(documentId, formData, selectedFile?.name)}
+              disabled={submitting}
+            >
+              <Ionicons name="save-outline" size={20} color="#6B7280" />
+              <Text style={styles.saveButtonText}>Save Progress</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </View>
     );
@@ -555,5 +619,66 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1F2937',
+  },
+  submittingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  submittingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  formActions: {
+    marginTop: 24,
+    gap: 12,
+  },
+  submitButton: {
+    flexDirection: 'row',
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  saveButton: {
+    flexDirection: 'row',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  saveButtonText: {
+    color: '#6B7280',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

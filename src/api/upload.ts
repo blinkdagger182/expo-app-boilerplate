@@ -12,8 +12,8 @@ export interface UploadResult {
   message?: string;
   data?: {
     documentId: string;
-    ui: any;
-    text: string;
+    components: any[];
+    fieldMap: Record<string, any>;
     metadata: any;
   };
 }
@@ -66,9 +66,11 @@ export const uploadAndProcessDocument = async (
     const isPDF = mimeType === 'application/pdf' || (fileName && fileName.toLowerCase().endsWith('.pdf'));
     
     if (isPDF) {
-      processedUri = await convertPDFToImage(fileUri);
-      processedType = 'image/jpeg';
-      processedName = fileName ? fileName.replace(/\.pdf$/i, '.jpg') : `converted_${Date.now()}.jpg`;
+      // Send PDF as-is - backend handles PDF processing
+      processedUri = fileUri;
+      processedType = 'application/pdf';
+      processedName = fileName || `document_${Date.now()}.pdf`;
+      console.log('Sending PDF directly to backend');
     } else {
       // Optimize image and ensure it's JPEG
       processedUri = await optimizeImage(fileUri);
@@ -114,10 +116,8 @@ export const uploadAndProcessDocument = async (
                 success: true,
                 data: {
                   documentId: `doc_${Date.now()}`,
-                  ui: {
-                    components: data.components || []
-                  },
-                  text: '',
+                  components: data.components || [],
+                  fieldMap: data.fieldMap || {},
                   metadata: data.metadata || {},
                 },
               });
