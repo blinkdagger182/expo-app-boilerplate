@@ -3,7 +3,10 @@
  * Connected to GCP Cloud Run PaddleOCR service
  */
 
-const GCP_OCR_URL = process.env.EXPO_PUBLIC_GCP_OCR_URL || 'https://paddleocr-ui-builder-824241800977.us-central1.run.app';
+// Hardcoded for testing - env vars not loading properly
+const GCP_OCR_URL = 'https://paddleocr-ui-builder-824241800977.us-central1.run.app';
+
+console.log('GCP_OCR_URL:', GCP_OCR_URL);
 
 export const API_CONFIG = {
   endpoint: GCP_OCR_URL,

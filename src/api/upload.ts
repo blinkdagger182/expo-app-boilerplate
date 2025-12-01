@@ -36,7 +36,7 @@ const optimizeImage = async (imageUri: string): Promise<string> => {
       imageUri,
       [{ resize: { width: 2048 } }],
       {
-        compress: 0.92,
+        compress: 1, // No compression for clarity
         format: SaveFormat.JPEG,
       }
     );
@@ -70,11 +70,17 @@ export const uploadAndProcessDocument = async (
       processedType = 'image/jpeg';
       processedName = fileName ? fileName.replace(/\.pdf$/i, '.jpg') : `converted_${Date.now()}.jpg`;
     } else {
+      // Optimize image and ensure it's JPEG
       processedUri = await optimizeImage(fileUri);
+      processedType = 'image/jpeg'; // Always JPEG after optimization
+      processedName = fileName ? fileName.replace(/\.(png|jpg|jpeg)$/i, '.jpg') : `image_${Date.now()}.jpg`;
     }
 
+    const uploadUrl = `${apiEndpoint}/ui/generate`;
+    console.log('Uploading to:', uploadUrl);
+    console.log('File:', processedName, 'Type:', processedType);
+
     const formData = new FormData();
-    
     formData.append('file', {
       uri: processedUri,
       type: processedType,
@@ -83,7 +89,7 @@ export const uploadAndProcessDocument = async (
 
     const xhr = new XMLHttpRequest();
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable && onProgress) {
           const progress: UploadProgress = {
@@ -96,29 +102,29 @@ export const uploadAndProcessDocument = async (
       });
 
       xhr.addEventListener('load', () => {
+        console.log('Response status:', xhr.status);
+        console.log('Response text:', xhr.responseText);
+
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
-            const response = JSON.parse(xhr.responseText);
+            const data = JSON.parse(xhr.responseText);
             
-            if (response.success) {
+            if (data.success) {
               resolve({
                 success: true,
                 data: {
                   documentId: `doc_${Date.now()}`,
-                  ui: response,
-                  text: response.full_text || '',
-                  metadata: {
-                    total_components: response.metadata?.total_components || response.components?.length || 0,
-                    total_lines: response.total_lines || 0,
-                    processing_engine: 'PaddleOCR',
-                    image_filename: fileName,
+                  ui: {
+                    components: data.components || []
                   },
+                  text: '',
+                  metadata: data.metadata || {},
                 },
               });
             } else {
               resolve({
                 success: false,
-                message: response.error || 'Processing failed',
+                message: data.error || 'Processing failed',
               });
             }
           } catch (error) {
@@ -129,10 +135,10 @@ export const uploadAndProcessDocument = async (
           }
         } else {
           try {
-            const errorResponse = JSON.parse(xhr.responseText);
+            const errorData = JSON.parse(xhr.responseText);
             resolve({
               success: false,
-              message: errorResponse.detail || errorResponse.error || `Upload failed with status ${xhr.status}`,
+              message: errorData.detail || errorData.error || `Upload failed with status ${xhr.status}`,
             });
           } catch {
             resolve({
@@ -144,12 +150,13 @@ export const uploadAndProcessDocument = async (
       });
 
       xhr.addEventListener('error', () => {
+        console.error('XHR Network error');
         resolve({
           success: false,
-          message: 'Network error - check if service is reachable',
+          message: 'Network error - check connection',
         });
       });
-      
+
       xhr.addEventListener('timeout', () => {
         resolve({
           success: false,
@@ -157,7 +164,7 @@ export const uploadAndProcessDocument = async (
         });
       });
 
-      xhr.open('POST', `${apiEndpoint}/ui/generate`);
+      xhr.open('POST', uploadUrl);
       xhr.send(formData);
     });
   } catch (error) {
