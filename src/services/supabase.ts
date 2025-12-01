@@ -50,9 +50,16 @@ const createStorageAdapter = () => {
   }
 };
 
-// Use environment variables in a production app
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://qqidxdmclegmqpnhqnqb.supabase.co';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxaWR4ZG1jbGVnbXFwbmhxbnFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNzExOTAsImV4cCI6MjA1Nzg0NzE5MH0.j64Jm4SkzxWiVZWKs9o_od8YjwT3t8E3VeRaeVnCIuc';
+// Validate required environment variables
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    'Missing Supabase environment variables. Please check your .env file.\n' +
+    'Required: EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY'
+  );
+}
 
 // Initialize Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

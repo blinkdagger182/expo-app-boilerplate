@@ -55,9 +55,24 @@ export const getDocumentResult = async (
 };
 
 /**
- * Convert backend UI component format to our UISchema format
+ * Convert PaddleOCR UI component format to our UISchema format
  */
 function convertBackendUIToSchema(backendUI: any): UISchema[] {
+  // Handle PaddleOCR response format
+  if (backendUI && backendUI.components && Array.isArray(backendUI.components)) {
+    const schema: UISchema[] = [];
+    
+    backendUI.components.forEach((component: any) => {
+      const processed = processPaddleOCRComponent(component);
+      if (processed) {
+        schema.push(processed);
+      }
+    });
+    
+    return schema;
+  }
+  
+  // Fallback to old format
   if (!backendUI || !backendUI.components) {
     return [];
   }
@@ -67,7 +82,6 @@ function convertBackendUIToSchema(backendUI: any): UISchema[] {
   function processComponent(component: any): UISchema | UISchema[] | null {
     switch (component.type) {
       case 'section':
-        // Add section title as a title component
         const sectionComponents: UISchema[] = [];
         if (component.title) {
           sectionComponents.push({
@@ -75,7 +89,6 @@ function convertBackendUIToSchema(backendUI: any): UISchema[] {
             text: component.title,
           });
         }
-        // Process nested components
         if (component.components) {
           component.components.forEach((child: any) => {
             const processed = processComponent(child);
@@ -153,4 +166,57 @@ function convertBackendUIToSchema(backendUI: any): UISchema[] {
   });
 
   return schema;
+}
+
+/**
+ * Convert PaddleOCR component to UISchema
+ */
+function processPaddleOCRComponent(component: any): UISchema | null {
+  switch (component.type) {
+    case 'heading':
+      return {
+        type: 'title',
+        text: component.text,
+      };
+    
+    case 'input':
+      return {
+        type: 'input',
+        label: component.label || component.text,
+        value: component.placeholder || '',
+      };
+    
+    case 'button':
+      return {
+        type: 'button',
+        label: component.text,
+        action: component.action || 'submit',
+      };
+    
+    case 'text':
+      return {
+        type: 'paragraph',
+        text: component.text,
+      };
+    
+    case 'checkbox':
+      return {
+        type: 'input',
+        label: component.text,
+        value: '',
+      };
+    
+    case 'link':
+      return {
+        type: 'paragraph',
+        text: component.text,
+      };
+    
+    default:
+      // For any unrecognized type, show as paragraph
+      return {
+        type: 'paragraph',
+        text: component.text || '',
+      };
+  }
 }

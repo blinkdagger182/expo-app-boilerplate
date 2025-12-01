@@ -83,7 +83,6 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
     setUploading(true);
     setProgress(0);
 
-    // Upload and process in single request
     const result = await uploadAndProcessDocument(
       selectedFile.uri,
       selectedFile.name,
@@ -103,15 +102,8 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
       try {
         // Convert the UI components
         const convertedSchema = convertBackendUIToSchema(result.data.ui);
-        
         setSchema(convertedSchema);
         setShowResults(true);
-        
-        console.log('Document processed:', {
-          documentId: result.data.documentId,
-          pageCount: result.data.metadata?.pageCount,
-          ocrBlocks: result.data.metadata?.ocrBlocks,
-        });
       } catch (error) {
         console.error('Schema conversion error:', error);
         Alert.alert('Error', 'Failed to process document schema');
@@ -284,7 +276,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
                 {selectedFile.name}
               </Text>
               <Text style={styles.fileSize}>
-                {(selectedFile.size / 1024).toFixed(2)} KB
+                {selectedFile.size ? (selectedFile.size / 1024).toFixed(2) : '0'} KB
               </Text>
               
               <View style={styles.fileActions}>

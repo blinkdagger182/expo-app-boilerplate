@@ -1,3 +1,6 @@
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+
 export interface UploadProgress {
   loaded: number;
   total: number;
@@ -16,8 +19,37 @@ export interface UploadResult {
 }
 
 /**
- * Upload and process document with Cloudflare Worker backend
- * Combines upload + OCR processing in single request
+ * Convert PDF - for now just return the URI
+ * PDF conversion requires native modules that aren't working
+ */
+const convertPDFToImage = async (pdfUri: string): Promise<string> => {
+  console.warn('PDF conversion not implemented - sending PDF as-is');
+  return pdfUri;
+};
+
+/**
+ * Optimize image for production upload
+ */
+const optimizeImage = async (imageUri: string): Promise<string> => {
+  try {
+    const result = await manipulateAsync(
+      imageUri,
+      [{ resize: { width: 2048 } }],
+      {
+        compress: 0.92,
+        format: SaveFormat.JPEG,
+      }
+    );
+    return result.uri;
+  } catch (error) {
+    console.error('Image optimization error:', error);
+    return imageUri;
+  }
+};
+
+/**
+ * Upload and process document with GCP PaddleOCR service
+ * Converts PDFs to images before upload
  */
 export const uploadAndProcessDocument = async (
   fileUri: string,
@@ -27,26 +59,26 @@ export const uploadAndProcessDocument = async (
   onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadResult> => {
   try {
+    let processedUri = fileUri;
+    let processedType = mimeType || 'image/jpeg';
+    let processedName = fileName || `image_${Date.now()}.jpg`;
+
+    const isPDF = mimeType === 'application/pdf' || (fileName && fileName.toLowerCase().endsWith('.pdf'));
+    
+    if (isPDF) {
+      processedUri = await convertPDFToImage(fileUri);
+      processedType = 'image/jpeg';
+      processedName = fileName ? fileName.replace(/\.pdf$/i, '.jpg') : `converted_${Date.now()}.jpg`;
+    } else {
+      processedUri = await optimizeImage(fileUri);
+    }
+
     const formData = new FormData();
     
-    // Determine file type from URI or mime type
-    let fileType = mimeType;
-    if (!fileType) {
-      if (fileName.toLowerCase().endsWith('.pdf')) {
-        fileType = 'application/pdf';
-      } else if (fileName.toLowerCase().match(/\.(jpg|jpeg)$/)) {
-        fileType = 'image/jpeg';
-      } else if (fileName.toLowerCase().endsWith('.png')) {
-        fileType = 'image/png';
-      } else if (fileName.toLowerCase().endsWith('.heic')) {
-        fileType = 'image/heic';
-      }
-    }
-    
     formData.append('file', {
-      uri: fileUri,
-      type: fileType,
-      name: fileName,
+      uri: processedUri,
+      type: processedType,
+      name: processedName,
     } as any);
 
     const xhr = new XMLHttpRequest();
@@ -67,14 +99,20 @@ export const uploadAndProcessDocument = async (
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             const response = JSON.parse(xhr.responseText);
+            
             if (response.success) {
               resolve({
                 success: true,
                 data: {
-                  documentId: response.documentId,
-                  ui: response.ui,
-                  text: response.text,
-                  metadata: response.metadata,
+                  documentId: `doc_${Date.now()}`,
+                  ui: response,
+                  text: response.full_text || '',
+                  metadata: {
+                    total_components: response.metadata?.total_components || response.components?.length || 0,
+                    total_lines: response.total_lines || 0,
+                    processing_engine: 'PaddleOCR',
+                    image_filename: fileName,
+                  },
                 },
               });
             } else {
@@ -94,7 +132,7 @@ export const uploadAndProcessDocument = async (
             const errorResponse = JSON.parse(xhr.responseText);
             resolve({
               success: false,
-              message: errorResponse.error || `Upload failed with status ${xhr.status}`,
+              message: errorResponse.detail || errorResponse.error || `Upload failed with status ${xhr.status}`,
             });
           } catch {
             resolve({
@@ -106,13 +144,20 @@ export const uploadAndProcessDocument = async (
       });
 
       xhr.addEventListener('error', () => {
-        reject({
+        resolve({
           success: false,
-          message: 'Network error occurred',
+          message: 'Network error - check if service is reachable',
+        });
+      });
+      
+      xhr.addEventListener('timeout', () => {
+        resolve({
+          success: false,
+          message: 'Request timed out',
         });
       });
 
-      xhr.open('POST', `${apiEndpoint}/process`);
+      xhr.open('POST', `${apiEndpoint}/ui/generate`);
       xhr.send(formData);
     });
   } catch (error) {

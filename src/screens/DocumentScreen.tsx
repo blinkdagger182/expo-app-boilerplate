@@ -90,7 +90,7 @@ export const DocumentScreen: React.FC = () => {
               <Ionicons name="document" size={48} color="#8B5CF6" />
               <Text style={styles.fileName}>{selectedFile.name}</Text>
               <Text style={styles.fileSize}>
-                {(selectedFile.size / 1024).toFixed(2)} KB
+                {selectedFile.size ? (selectedFile.size / 1024).toFixed(2) : '0'} KB
               </Text>
             </View>
           ) : (

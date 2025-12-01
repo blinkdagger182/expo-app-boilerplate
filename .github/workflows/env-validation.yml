@@ -1,0 +1,75 @@
+name: Environment Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  validate-env-setup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Check .env is not committed
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "❌ ERROR: .env file should not be committed to git"
+            echo "This file contains sensitive credentials and must be kept local"
+            exit 1
+          fi
+          echo "✅ .env is properly ignored"
+      
+      - name: Check .env.example exists
+        run: |
+          if [ ! -f .env.example ]; then
+            echo "❌ ERROR: .env.example is missing"
+            echo "This template file is required for team onboarding"
+            exit 1
+          fi
+          echo "✅ .env.example exists"
+      
+      - name: Check for hardcoded secrets
+        run: |
+          # Check for common secret patterns in source code
+          if grep -r "eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*" src/ --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" 2>/dev/null; then
+            echo "❌ WARNING: Possible JWT token found in source code"
+            exit 1
+          fi
+          
+          if grep -r "pk_[a-zA-Z0-9_]*" src/ --include="*.ts" --include="*.tsx" 2>/dev/null; then
+            echo "❌ WARNING: Possible API key found in source code"
+            exit 1
+          fi
+          
+          echo "✅ No obvious secrets found in source code"
+      
+      - name: Verify .gitignore includes .env
+        run: |
+          if ! grep -q "^\.env$" .gitignore; then
+            echo "❌ ERROR: .env is not in .gitignore"
+            exit 1
+          fi
+          echo "✅ .env is in .gitignore"
+      
+      - name: Check validation script exists
+        run: |
+          if [ ! -f scripts/validate-env.js ]; then
+            echo "❌ ERROR: scripts/validate-env.js is missing"
+            exit 1
+          fi
+          echo "✅ Validation script exists"
+      
+      - name: Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Environment security validation passed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

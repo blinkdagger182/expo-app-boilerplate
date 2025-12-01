@@ -10,6 +10,14 @@
       "env": {},
       "disabled": false,
       "autoApprove": []
+    },
+
+    "react-native": {
+      "command": "npx",
+      "args": ["-y", "react-native-mcp-server"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": []
     }
   }
 }

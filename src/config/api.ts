@@ -1,25 +1,19 @@
 /**
  * API Configuration
- * 
- * Connected to Cloudflare Worker backend
+ * Connected to GCP Cloud Run PaddleOCR service
  */
 
+const GCP_OCR_URL = process.env.EXPO_PUBLIC_GCP_OCR_URL || 'https://paddleocr-ui-builder-824241800977.us-central1.run.app';
+
 export const API_CONFIG = {
-  // Production endpoint
-  endpoint: 'https://document-ai-backend.azhanrizhan.workers.dev',
-  
-  // Local development endpoint (uncomment to use)
-  // endpoint: 'http://localhost:8787',
-  
-  // API routes
+  endpoint: GCP_OCR_URL,
   routes: {
-    process: '/process',
+    process: '/ui/generate',
+    ocrProcess: '/ocr/process',
     result: '/result',
     health: '/health',
   },
-  
-  // Timeout settings
-  timeout: 60000, // 60 seconds for OCR processing
+  timeout: 60000,
 };
 
 // Helper to get full API URL
