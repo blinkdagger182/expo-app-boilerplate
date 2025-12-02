@@ -21,6 +21,7 @@ import { overlayPDF, sharePDF } from '../api/overlay';
 import { DynamicRenderer } from '../components/DynamicRenderer';
 import { API_CONFIG } from '../config/api';
 import { saveFormData, loadFormData, deleteFormData } from '../utils/storage';
+import { AnimatedGradientBackground } from '../components/AnimatedGradientBackground';
 
 interface HomePageProps {}
 
@@ -243,11 +244,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
   if (showResults) {
     return (
       <View style={styles.container}>
-        <Image
-          source={require('../../assets/images/gradient-background.gif')}
-          style={styles.background}
-          resizeMode="cover"
-        />
+        <AnimatedGradientBackground />
         
         <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
         
@@ -306,11 +303,7 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
 
   return (
     <View style={styles.container}>
-      <Image
-        source={require('../../assets/images/gradient-background.gif')}
-        style={styles.background}
-        resizeMode="cover"
-      />
+      <AnimatedGradientBackground />
       
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
@@ -434,11 +427,6 @@ export const HomeScreen: React.FC<HomePageProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  background: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
   },
   content: {
     padding: 20,

@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cqjack.expoappboilerplate",
+      "bundleIdentifier": "com.riskcreatives.documentai",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
@@ -31,7 +31,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.cqjack.expoappboilerplate"
+      "package": "com.riskcreatives.documentai",
+      "permissions": []
     },
     "web": {
       "bundler": "metro",
@@ -59,8 +60,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "e55fcdea-13e2-4c3b-a4c3-59c174184eb5"
+        "projectId": "628a405b-1ec4-40af-bd1b-d31beef3dd4c"
       }
-    }
+    },
+    "owner": "rizhanruslan"
   }
 }

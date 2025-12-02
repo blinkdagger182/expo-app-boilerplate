@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Image,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { uploadDocument, UploadProgress } from '../api/upload';
+import { AnimatedGradientBackground } from '../components/AnimatedGradientBackground';
 
 const API_ENDPOINT = 'https://your-api-endpoint.com'; // Replace with actual endpoint
 
@@ -71,11 +71,7 @@ export const DocumentScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Image
-        source={require('../../assets/images/gradient-background.gif')}
-        style={styles.background}
-        resizeMode="cover"
-      />
+      <AnimatedGradientBackground />
 
       <View style={styles.content}>
         <View style={styles.header}>
@@ -146,11 +142,6 @@ export const DocumentScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  background: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
   },
   content: {
     flex: 1,
