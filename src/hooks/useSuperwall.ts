@@ -6,15 +6,24 @@ import { superwallService } from '../services/superwall';
 export function useSuperwall() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(true);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
       setIsLoading(false);
+      setIsAvailable(false);
       return;
     }
 
-    superwallService.initialize();
-    checkSubscription();
+    // Check if Superwall is available (not in Expo Go)
+    try {
+      superwallService.initialize();
+      checkSubscription();
+    } catch (error) {
+      console.warn('[Superwall] Not available in this environment (Expo Go). Use a development build for full features.');
+      setIsAvailable(false);
+      setIsLoading(false);
+    }
   }, []);
 
   const checkSubscription = async () => {
@@ -29,7 +38,10 @@ export function useSuperwall() {
   };
 
   const showPaywall = async (triggerId: string) => {
-    if (isLoading || Platform.OS === 'web') return;
+    if (isLoading || Platform.OS === 'web' || !isAvailable) {
+      console.log('[Superwall] Paywall not available. Build a development build to enable subscriptions.');
+      return;
+    }
     
     try {
       await superwallService.presentPaywall(triggerId);
@@ -45,5 +57,6 @@ export function useSuperwall() {
     isLoading,
     showPaywall,
     checkSubscription,
+    isAvailable,
   };
 } 
