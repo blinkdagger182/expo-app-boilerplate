@@ -1,0 +1,54 @@
+═══════════════════════════════════════════════════════════════
+🚀 DEPLOY TO PRODUCTION - COPY & PASTE THESE COMMANDS
+═══════════════════════════════════════════════════════════════
+
+✅ Everything is ready! Your app is configured with:
+   • Bundle ID: com.riskcreatives.documentai
+   • App Name: documentAI
+   • Icon: Group 3.png (updated everywhere)
+   • iOS native project: Updated ✅
+
+───────────────────────────────────────────────────────────────
+STEP 1: BUILD FOR iOS (10-15 minutes)
+───────────────────────────────────────────────────────────────
+
+cd ~/Developer/document-ai/expo-app-boilerplate
+eas build --platform ios --profile production
+
+When prompted:
+  • "Generate Apple Distribution Certificate?" → Press Y
+  • "Generate Apple Provisioning Profile?" → Press Y
+
+You'll get a URL to track progress. Wait for build to complete.
+
+───────────────────────────────────────────────────────────────
+STEP 2: SUBMIT TO TESTFLIGHT (after build completes)
+───────────────────────────────────────────────────────────────
+
+eas submit --platform ios --latest
+
+You'll need:
+  • Apple ID: Your developer account email
+  • App-Specific Password: Generate at appleid.apple.com
+    (Sign-In & Security → App-Specific Passwords)
+
+───────────────────────────────────────────────────────────────
+QUICK COMMANDS
+───────────────────────────────────────────────────────────────
+
+# Check build status
+eas build:list
+
+# View in browser
+open https://expo.dev/accounts/rizhanruslan/projects/documentai/builds
+
+# Check project info
+eas project:info
+
+───────────────────────────────────────────────────────────────
+NEED HELP?
+───────────────────────────────────────────────────────────────
+
+See detailed guide: PRODUCTION_DEPLOYMENT.md
+
+═══════════════════════════════════════════════════════════════
